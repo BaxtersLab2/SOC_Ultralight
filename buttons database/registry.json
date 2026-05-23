@@ -1,0 +1,32 @@
+{
+  "agent1_chat_input_field.png": {
+    "matches": 12,
+    "conf_sum": 10.188633799552917,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_chat_input_field.png": {
+    "matches": 11,
+    "conf_sum": 10.984782218933105,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_window_scroll1.png": {
+    "matches": 4,
+    "conf_sum": 3.884240508079529,
+    "trained": false,
+    "action": "click"
+  },
+  "agent2_window_scroll2.png": {
+    "matches": 4,
+    "conf_sum": 3.7791320085525513,
+    "trained": false,
+    "action": "click"
+  },
+  "agent2_allow.png": {
+    "matches": 2,
+    "conf_sum": 1.9934595227241516,
+    "trained": false,
+    "action": "click"
+  }
+}

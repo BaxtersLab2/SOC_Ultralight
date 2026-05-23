@@ -1,0 +1,26 @@
+{
+  "agent1": {
+    "window_title": null,
+    "prefix_enabled": false,
+    "prefix_text": "Ignore Edge browser metadata noise. ",
+    "ocr_region": null
+  },
+  "agent2": {
+    "window_title": null,
+    "prefix_enabled": false,
+    "prefix_text": "",
+    "ocr_region": null
+  },
+  "agent3": {
+    "window_title": null,
+    "prefix_enabled": false,
+    "prefix_text": "",
+    "ocr_region": null
+  },
+  "autoclick": {
+    "Agent2_allow": true,
+    "Claude_yes_button": true,
+    "keep_all_changes": true,
+    "VS_code_allow": false
+  }
+}

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Runtime folders (processed messages, never commit)
+outbox/
+sent/
+
+# Dev / internal notes (stay local only)
+DEV_NOTES.md
+dev_notes.md
+project objective notes.txt
+roadmap.txt
+TODO_LOCAL.md
+*.local.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
