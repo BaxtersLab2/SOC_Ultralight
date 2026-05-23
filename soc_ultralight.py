@@ -1060,6 +1060,93 @@ class SOCUltralight:
     # Maximum characters injected in a single paste — prevents chat UI hangs
     MAX_INJECT_CHARS = 8000
 
+    # Seconds to wait for user response in the click-assist dialog
+    COORD_ASSIST_TIMEOUT = 25
+
+    def _prompt_missing_coord(self, agent_id: str, slot: str) -> "tuple | None":
+        """When template matching and stored coords both fail, show a small dialog
+        asking the user to hover over the missing element and capture it (3-second
+        countdown), or dismiss to skip the current send.
+
+        Blocks the calling thread up to COORD_ASSIST_TIMEOUT seconds.
+        Returns (x, y) if user captures, or None if dismissed/timed out."""
+        cfg = self.agents[agent_id]
+        # Re-check in case another thread set the coord while we were waiting
+        current = cfg.input_xy if slot == "input" else cfg.send_xy
+        if current:
+            return current
+
+        event  = threading.Event()
+        result = [None]
+
+        def _show():
+            if event.is_set():
+                return  # timed out before dialog rendered
+            dlg = tk.Toplevel(self.root)
+            dlg.title(f"Missing: {agent_id} {slot}")
+            dlg.attributes("-topmost", True)
+            dlg.resizable(False, False)
+            dlg.configure(bg=BG2)
+            sw = dlg.winfo_screenwidth()
+            sh = dlg.winfo_screenheight()
+            dlg.geometry(f"310x120+{(sw - 310)//2}+{(sh - 120)//2}")
+
+            tk.Label(dlg,
+                     text=f"⚠  {agent_id} — {slot} not found on screen",
+                     bg=BG2, fg=ORANGE,
+                     font=("Segoe UI", 9, "bold")).pack(pady=(12, 2))
+            tk.Label(dlg,
+                     text="Hover over the target then click ⊙ Capture, or Skip.",
+                     bg=BG2, fg=FG,
+                     font=("Segoe UI", 8)).pack(pady=(0, 10))
+
+            row = tk.Frame(dlg, bg=BG2)
+            row.pack()
+
+            def _on_capture():
+                dlg.destroy()
+                self.root.iconify()
+                self._set_status(
+                    f"Hover over {agent_id} {slot} — capturing in 3 s…")
+                def _do():
+                    time.sleep(3.0)
+                    x, y = pyautogui.position()
+                    result[0] = (x, y)
+                    if slot == "input":
+                        cfg.input_xy = (x, y)
+                        if cfg.lbl_input:
+                            self.root.after(0, lambda: cfg.lbl_input.config(
+                                text=f"input field: ({x},{y})", fg=GREEN))
+                    elif slot == "send":
+                        cfg.send_xy = (x, y)
+                        if cfg.lbl_send:
+                            self.root.after(0, lambda: cfg.lbl_send.config(
+                                text=f"send button: ({x},{y})", fg=GREEN))
+                    self._save_config()
+                    self._log(f"[coord-assist] {agent_id} {slot} → ({x},{y})")
+                    self.root.after(0, self.root.deiconify)
+                    event.set()
+                threading.Thread(target=_do, daemon=True).start()
+
+            def _on_skip():
+                dlg.destroy()
+                event.set()
+
+            tk.Button(row, text="⊙ Capture (3s hover)",
+                      command=_on_capture, bg=BG2, fg=GREEN,
+                      relief="flat", font=("Segoe UI", 8, "bold"),
+                      cursor="hand2", padx=8).pack(side="left", padx=(0, 8))
+            tk.Button(row, text="Skip this send",
+                      command=_on_skip, bg=BG2, fg=ORANGE,
+                      relief="flat", font=("Segoe UI", 8),
+                      cursor="hand2", padx=8).pack(side="left")
+
+            dlg.protocol("WM_DELETE_WINDOW", _on_skip)
+
+        self.root.after(0, _show)
+        event.wait(self.COORD_ASSIST_TIMEOUT)
+        return result[0]
+
     def _inject_to_agent(self, agent_id: str, text: str):
         """Focus agent window, paste text into input field, click Send.
         Uses _find_two_buttons to locate input+send in one screenshot.
@@ -1169,14 +1256,27 @@ class SOCUltralight:
                 # — One screenshot locates both input and send buttons —
                 tmpl_input, tmpl_send = self._find_two_buttons(agent_id)
                 input_xy = tmpl_input or cfg.input_xy
-                if input_xy:
-                    pyautogui.click(*input_xy)
-                    time.sleep(0.15)
-                    # Select-all then paste so any leftover text is replaced cleanly.
-                    pyautogui.hotkey("ctrl", "a")
-                    time.sleep(0.05)
-                else:
-                    self._log(f"[router] {agent_id}: no input field located — pasting at cursor")
+
+                # If still no input field: ask user to click it or skip this send
+                if not input_xy:
+                    input_xy = self._prompt_missing_coord(agent_id, "input")
+                    if not input_xy:
+                        self._log(
+                            f"[router] {agent_id}: input field not located — "
+                            "send aborted. Use ⊙ Input to set it.")
+                        self._set_status(
+                            f"⚠ {agent_id}: input field missing — set via ⊙ Input")
+                        return
+                    # Re-focus agent window after user interaction
+                    win32gui.ShowWindow(cfg.hwnd, win32con.SW_RESTORE)
+                    win32gui.SetForegroundWindow(cfg.hwnd)
+                    time.sleep(PASTE_DELAY)
+
+                pyautogui.click(*input_xy)
+                time.sleep(0.15)
+                # Select-all then paste so any leftover text is replaced cleanly.
+                pyautogui.hotkey("ctrl", "a")
+                time.sleep(0.05)
 
                 pyautogui.hotkey("ctrl", "v")
                 # Wait for send button to appear (only shows after text is in the field)
@@ -1184,6 +1284,11 @@ class SOCUltralight:
 
                 # — Send: use pre-found coord, or search again now button is visible —
                 send_xy = tmpl_send or self._find_agent_button_xy(agent_id, "send") or cfg.send_xy
+
+                # If still no send button: ask user to click it or accept paste-only
+                if not send_xy:
+                    send_xy = self._prompt_missing_coord(agent_id, "send")
+
                 if send_xy:
                     pyautogui.click(*send_xy)
                     self._click_count += 1
@@ -1194,7 +1299,9 @@ class SOCUltralight:
                 else:
                     self._log(
                         f"[→{agent_id}] pasted — send button not found "
-                        f"(set Send btn or add template)  {text[:60]}")
+                        f"(use ⊙ Send to set it)  {text[:60]}")
+                    self._set_status(
+                        f"⚠ {agent_id}: message pasted — set send button via ⊙ Send")
                 self._set_status(f"→ {agent_id}")
             except ImportError:
                 self._set_status("pywin32 missing — pip install pywin32")
