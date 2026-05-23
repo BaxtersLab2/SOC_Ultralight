@@ -186,6 +186,9 @@ GROUND_RULES_VSCODE_BRIEF = (
     "Wait for Agent 2 reply before sending the next block."
 )
 
+# Startup briefing written to outbox/agent3/ when VS Code mode activates.
+GROUND_RULES_VSCODE_AGENT3 = GROUND_RULES_VSCODE_BRIEF
+
 
 #   "message body"
 #   end message now
@@ -218,6 +221,38 @@ YELLOW = "#dcdcaa"; ORANGE = "#ce9178"
 
 
 BING_NOISE_PREFIX = "Ignore Edge browser metadata noise. "
+
+# ── Mode + Anti-Drift system ──────────────────────────────────────────────────
+IMPL_TRIGGER_PHRASE  = "This is the final block. Agent2 may begin implementation."
+MODULE_BLOCK_HEADER  = "<Module Block Mode Active — Do Not Implement Until Authorized>"
+ANTIDRIFT_MSG_REM    = "<Reminder: Module Block Mode is active. Do not implement until authorized.>"
+ANTIDRIFT_BLOCK_REM  = ("<Anti-Drift Reminder: Continue sending module blocks only. "
+                        "Implementation is not permitted.>")
+ANTIDRIFT_EVERY      = 10   # every Nth message to Agent1 triggers count-based reminder
+IMPL_RUNAWAY_LIMIT   = 3    # implementation attempts before Agent2 HOLD
+
+BLOCK_SAVED_RE  = re.compile(
+    r"block\s+\S+\s+saved[.,!;]?\s*[—\-]?\s*ready\s+for\s+(?:the\s+)?next\s+block",
+    re.IGNORECASE)
+IMPL_ATTEMPT_RE = re.compile(
+    r"\b(begin\s+implementation|start\s+implementing|implement\s+now"
+    r"|execute\s+this\s+now|now\s+implement)\b", re.IGNORECASE)
+
+# ── Agent SOP prompts (loaded from .txt files beside this script) ─────────────
+def _load_sop(filename: str, fallback: str) -> str:
+    p = BASE_DIR / filename
+    try:
+        return p.read_text(encoding="utf-8").strip()
+    except Exception:
+        return fallback
+
+AGENT1_SOP = _load_sop(
+    "agent1 soc ultralight .txt",
+    "You are Agent1. Generate module blocks in alphanumeric order and deliver to Agent2.")
+AGENT2_SOP = _load_sop(
+    "agent 2 soc ultralight.txt",
+    "You are Agent2. Store every module block exactly as received. "
+    "Do not implement until Agent1 sends the final block phrase.")
 
 
 class AgentConfig:
@@ -279,11 +314,19 @@ class SOCUltralight:
         self._autoclick_running  = False
         self._autoclick_thread   = None
         self._template_cache:    dict[str, tuple]         = {}   # stem → (mtime, cv2_ndarray)
-        self._autoclick_panel_open = True
+        self._autoclick_panel_open = False   # collapsed by default
         self._training_stem: str | None = None  # stem currently being trained; None = idle
+
+        # ── Mode + anti-drift state ───────────────────────────────────────────
+        self._mode                    = "module_block"  # "module_block" | "implementation"
+        self._agent1_inbound_count    = 0   # messages delivered to agent1
+        self._consecutive_saved_count = 0   # consecutive "Block X saved" messages
+        self._agent2_impl_attempts    = 0   # impl attempt intercepts in module_block mode
+        self._agent2_hold             = False  # runaway HOLD state
 
         self._build_window()
         self._build_ui()
+        self._update_mode_indicator()              # sync mode bar to initial state
         self._load_config()                        # restore saved coords
         self.root.after(1800, self._startup_calibrate)  # auto-match templates
 
@@ -318,6 +361,10 @@ class SOCUltralight:
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 9, "bold"),
                   activebackground=RED, activeforeground="white",
                   cursor="hand2", bd=0, padx=8).pack(side="right")
+        tk.Button(tb, text="—", command=self.root.iconify,
+                  bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 9, "bold"),
+                  activebackground=BG2, activeforeground="white",
+                  cursor="hand2", bd=0, padx=8).pack(side="right")
 
         # Protocol reminder
         tk.Label(self.root,
@@ -333,6 +380,43 @@ class SOCUltralight:
         tk.Frame(self.root, bg=BG2, height=1).pack(fill="x", padx=10, pady=2)
         self._build_agent_panel("agent3", "Agent 3")
         tk.Frame(self.root, bg=BG2, height=1).pack(fill="x", padx=10, pady=4)
+
+        # ── Mode indicator ─────────────────────────────────────────────────
+        mode_row = tk.Frame(self.root, bg=BG2, pady=3)
+        mode_row.pack(fill="x", padx=10, pady=(4, 0))
+        self._mode_dot = tk.Label(mode_row, text="●",
+                                   font=("Segoe UI", 10, "bold"), bg=BG2, fg=ACCENT)
+        self._mode_dot.pack(side="left", padx=(4, 0))
+        self._mode_lbl = tk.Label(mode_row, text="MODULE BLOCK MODE",
+                                   font=("Segoe UI", 8, "bold"), bg=BG2, fg=ACCENT)
+        self._mode_lbl.pack(side="left", padx=(4, 0))
+        self._disengage_btn = tk.Button(
+            mode_row, text="Disengage", command=self._disengage_impl_mode,
+            bg=BG2, fg=ORANGE, relief="flat", font=("Segoe UI", 7, "bold"),
+            cursor="hand2", padx=4, bd=0)
+        self._disengage_btn.pack(side="right", padx=(0, 4))
+        self._mode_sub = tk.Label(mode_row, text="Storing blocks only.",
+                                   font=("Segoe UI", 7, "italic"), bg=BG2, fg=FG)
+        self._mode_sub.pack(side="left", padx=(6, 0))
+
+        # Controls row 0: Agent startup + Home
+        ctrl0 = tk.Frame(self.root, bg=BG, pady=2)
+        ctrl0.pack(fill="x", padx=12)
+        tk.Button(
+            ctrl0, text="⌂", command=self._log_scroll_top,
+            bg=BG2, fg=FG, font=("Segoe UI", 9),
+            relief="flat", cursor="hand2", padx=6, pady=4
+        ).pack(side="left")
+        tk.Button(
+            ctrl0, text="▶ Agent 1", command=self._start_agent1,
+            bg=BG2, fg=ACCENT, font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=4
+        ).pack(side="left", padx=(4, 0))
+        tk.Button(
+            ctrl0, text="▶ Agent 2", command=self._start_agent2,
+            bg=BG2, fg=GREEN, font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=4
+        ).pack(side="left", padx=(4, 0))
 
         # Controls row 1: OCR
         ctrl1 = tk.Frame(self.root, bg=BG, pady=2)
@@ -398,11 +482,11 @@ class SOCUltralight:
                   ).pack(side="right")
 
         # Log drawer header (always visible)
-        self._log_open = True
+        self._log_open = False
         log_hdr = tk.Frame(self.root, bg=BG2)
         log_hdr.pack(fill="x", padx=10, pady=(4, 0))
         self._log_toggle_btn = tk.Button(
-            log_hdr, text="▼ Diagnostics", command=self._toggle_log,
+            log_hdr, text="▶ Diagnostics", command=self._toggle_log,
             bg=BG2, fg=ACCENT, relief="flat", font=("Segoe UI", 8, "bold"),
             cursor="hand2", anchor="w", padx=4, bd=0)
         self._log_toggle_btn.pack(side="left")
@@ -417,7 +501,7 @@ class SOCUltralight:
             bg=BG2, fg=FG, insertbackground=FG,
             font=("Consolas", 8), relief="flat",
             borderwidth=0, padx=6, pady=6)
-        self.log.pack(fill="both", expand=True, padx=10, pady=(0, 4))
+        # Log starts collapsed; opened via ▶ Diagnostics toggle
         self.log.config(state="disabled")
         # Ctrl+C copies selection (widget is read-only/disabled so default copy is suppressed)
         self.log.bind("<Control-c>", self._copy_log_selection)
@@ -627,7 +711,7 @@ class SOCUltralight:
         hdr.pack(fill="x", padx=10, pady=(2, 0))
 
         self._ac_toggle_btn = tk.Button(
-            hdr, text="▼ Auto-Click", command=self._toggle_autoclick_panel,
+            hdr, text="▶ Auto-Click", command=self._toggle_autoclick_panel,
             bg=BG2, fg=YELLOW, relief="flat",
             font=("Segoe UI", 8, "bold"), cursor="hand2", anchor="w", padx=4, bd=0)
         self._ac_toggle_btn.pack(side="left")
@@ -644,7 +728,7 @@ class SOCUltralight:
 
         # Collapsible body — scrollable list of template rows
         self._ac_body = tk.Frame(self.root, bg=BG)
-        self._ac_body.pack(fill="x", padx=10, pady=(2, 4))
+        # _ac_body starts collapsed; opened via ▶ Auto-Click toggle
 
         self._ac_list_frame = tk.Frame(self._ac_body, bg=BG)
         self._ac_list_frame.pack(fill="x")
@@ -988,6 +1072,67 @@ class SOCUltralight:
             try:
                 import win32gui, win32con
 
+                # ── Mode system: Agent2 intercept + safety header ─────────────
+                if agent_id == "agent2":
+                    if self._agent2_hold:
+                        self._log(
+                            "[mode] Agent2 is in HOLD — message blocked. "
+                            "Click Disengage to reset.")
+                        return
+                    # Safety: IMPL_TRIGGER_PHRASE contains "begin implementation"
+                    # which would match IMPL_ATTEMPT_RE. This guard is safe because
+                    # _route_text sets self._mode = "implementation" before calling
+                    # _inject_to_agent, so the phrase arrives here with mode already
+                    # "implementation" and this branch is skipped.
+                    if self._mode == "module_block" and IMPL_ATTEMPT_RE.search(text):
+                        self._agent2_impl_attempts += 1
+                        self._log(
+                            f"[mode] ⚠ impl attempt #{self._agent2_impl_attempts} "
+                            "intercepted — blocked")
+                        if self._agent2_impl_attempts >= IMPL_RUNAWAY_LIMIT:
+                            self._agent2_hold = True
+                            self.root.after(0, self._update_mode_indicator)
+                            self._log("[mode] ⛔ Agent2 HOLD — runaway prevention active")
+                            threading.Thread(
+                                target=self._inject_to_agent,
+                                args=("agent1",
+                                      "Agent2 entered runaway prevention mode. "
+                                      "Manual reset required."),
+                                daemon=True).start()
+                        else:
+                            threading.Thread(
+                                target=self._inject_to_agent,
+                                args=("agent2",
+                                      "Implementation is not permitted. "
+                                      "Await authorization from Agent1."),
+                                daemon=True).start()
+                        return
+                    if self._mode == "module_block":
+                        text = MODULE_BLOCK_HEADER + "\n" + text
+
+                # ── Mode system: Agent1 anti-drift counters ───────────────────
+                if agent_id == "agent1":
+                    self._agent1_inbound_count += 1
+                    if BLOCK_SAVED_RE.search(text):
+                        self._consecutive_saved_count += 1
+                    else:
+                        self._consecutive_saved_count = 0
+                    # Block-sequence reminder: every 10th consecutive block-saved
+                    if (self._mode == "module_block"
+                            and self._consecutive_saved_count > 0
+                            and self._consecutive_saved_count % ANTIDRIFT_EVERY == 0):
+                        text = ANTIDRIFT_BLOCK_REM + "\n" + text
+                        self._log(
+                            f"[anti-drift] block-sequence reminder "
+                            f"(#{self._consecutive_saved_count})")
+                    # Message-count reminder: every ANTIDRIFT_EVERY messages
+                    elif (self._mode == "module_block"
+                            and self._agent1_inbound_count % ANTIDRIFT_EVERY == 0):
+                        text = ANTIDRIFT_MSG_REM + "\n" + text
+                        self._log(
+                            f"[anti-drift] count reminder "
+                            f"(msg #{self._agent1_inbound_count})")
+
                 # Guard: truncate oversized messages before they can hang the UI
                 if len(text) > self.MAX_INJECT_CHARS:
                     self._log(f"[router] message truncated "
@@ -1027,6 +1172,9 @@ class SOCUltralight:
                 if input_xy:
                     pyautogui.click(*input_xy)
                     time.sleep(0.15)
+                    # Select-all then paste so any leftover text is replaced cleanly.
+                    pyautogui.hotkey("ctrl", "a")
+                    time.sleep(0.05)
                 else:
                     self._log(f"[router] {agent_id}: no input field located — pasting at cursor")
 
@@ -1068,6 +1216,14 @@ class SOCUltralight:
         # Strip Edge browser prefix echoed back in Agent 1's output
         if self._bing_mode and BING_NOISE_PREFIX in ocr_text:
             ocr_text = ocr_text.replace(BING_NOISE_PREFIX, "")
+
+        # Implementation authorization trigger
+        if (self._mode == "module_block"
+                and IMPL_TRIGGER_PHRASE.lower() in ocr_text.lower()):
+            self._mode = "implementation"
+            self.root.after(0, self._update_mode_indicator)
+            self._log("[mode] ✓ IMPLEMENTATION MODE activated — authorization phrase detected")
+
         routed = 0
 
         # Primary: sentinel-delimited protocol
@@ -1197,6 +1353,13 @@ class SOCUltralight:
         # _SENTINEL_VARIANTS covers common OCR garbling (rnessage, messaqe, etc.)
         if any(v in low for v in _SENTINEL_VARIANTS):
             self._route_text(text)
+
+        # Step 2b: implementation authorization phrase (may appear without sentinel)
+        if (self._mode == "module_block"
+                and IMPL_TRIGGER_PHRASE.lower() in low):
+            self._mode = "implementation"
+            self.root.after(0, self._update_mode_indicator)
+            self._log("[mode] ✓ IMPLEMENTATION MODE activated via OCR scan")
 
         # Step 3: [CMD: ...] hook for Bing disconnected-hand (disabled)
         self._parse_cmd_blocks(text)
@@ -1862,6 +2025,89 @@ class SOCUltralight:
         fresh = [ln for ln in new_text.splitlines()
                  if ln.strip().lower() not in tail]
         return "\n".join(fresh)
+
+    # ── Mode system ───────────────────────────────────────────────────────────
+
+    def _update_mode_indicator(self):
+        """Update the GUI mode indicator to reflect current state.
+        Safe to call from any thread (uses root.after for Tk thread safety).
+
+        Thread-safety note: _mode and _agent2_hold are written from background
+        threads without a dedicated lock. In CPython the GIL makes single
+        attribute assignments atomic, and all transitions are idempotent, so a
+        threading.Lock is not required here. Counters that gate state changes
+        (_agent2_impl_attempts, etc.) are mutated only inside _inject_lock."""
+        if self._agent2_hold:
+            color = RED
+            label = "⚠ AGENT2 HOLD"
+            sub   = "Runaway prevented. Click Disengage to reset."
+            dis_bg, dis_fg = RED, "white"
+        elif self._mode == "implementation":
+            color = GREEN
+            label = "IMPLEMENTATION MODE"
+            sub   = "Executing stored blocks."
+            dis_bg, dis_fg = BG2, ORANGE
+        else:
+            color = ACCENT   # blue
+            label = "MODULE BLOCK MODE"
+            sub   = "Storing blocks only. Implementation disabled."
+            dis_bg, dis_fg = BG2, FG
+
+        def _do():
+            self._mode_dot.config(fg=color)
+            self._mode_lbl.config(text=label, fg=color)
+            self._mode_sub.config(text=sub)
+            self._disengage_btn.config(bg=dis_bg, fg=dis_fg)
+        self.root.after(0, _do)
+
+    def _disengage_impl_mode(self):
+        """User override: reset to MODULE BLOCK MODE and clear any Agent2 HOLD.
+        Resets all session counters so anti-drift cadence starts fresh."""
+        prev = self._mode
+        self._mode                    = "module_block"
+        self._agent2_hold             = False
+        self._agent2_impl_attempts    = 0
+        self._agent1_inbound_count    = 0
+        self._consecutive_saved_count = 0
+        self._update_mode_indicator()
+        self._log(
+            f"[mode] Disengaged by user  ({prev} → module_block)  "
+            "hold + all session counters cleared")
+        self._set_status("Mode reset: MODULE BLOCK MODE")
+
+    def _start_agent1(self):
+        """Send Agent1 SOP prompt to Agent1's chat window."""
+        if not self.agents["agent1"].hwnd:
+            self._set_status("Agent 1 window not set — click Set Win after focusing it")
+            return
+        threading.Thread(
+            target=self._inject_to_agent,
+            args=("agent1", AGENT1_SOP),
+            daemon=True).start()
+        self._log("[mode] Agent1 SOP sent → awaiting 'Ready to plan project.'")
+        self._set_status("Agent1 SOP sent")
+
+    def _start_agent2(self):
+        """Send Agent2 SOP prompt to Agent2's chat window."""
+        if not self.agents["agent2"].hwnd:
+            self._set_status("Agent 2 window not set — click Set Win after focusing it")
+            return
+        threading.Thread(
+            target=self._inject_to_agent,
+            args=("agent2", AGENT2_SOP),
+            daemon=True).start()
+        self._log("[mode] Agent2 SOP sent → awaiting 'Ready to save instruction blocks.'")
+        self._set_status("Agent2 SOP sent")
+
+    def _log_scroll_top(self):
+        """[Home] — jump the diagnostics log to the first entry."""
+        if not self._log_open:
+            self._toggle_log()   # auto-open so user can see the top
+        def _do():
+            self.log.config(state="normal")
+            self.log.see("1.0")
+            self.log.config(state="disabled")
+        self.root.after(0, _do)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
