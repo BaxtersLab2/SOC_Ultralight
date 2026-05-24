@@ -63,6 +63,7 @@ from datetime import datetime
 import pyperclip
 import pyautogui
 import mss
+_mss_ctor = getattr(mss, 'MSS', None) or getattr(mss, 'mss', None)
 from PIL import Image, ImageTk
 import pytesseract
 
@@ -889,7 +890,7 @@ class SOCUltralight:
         x1 = max(0, x - TRAIN_CAPTURE_W // 2)
         y1 = max(0, y - TRAIN_CAPTURE_H // 2)
         try:
-            with mss.MSS() as sct:
+            with _mss_ctor() as sct:
                 raw = sct.grab({"left": x1, "top": y1,
                                 "width": TRAIN_CAPTURE_W, "height": TRAIN_CAPTURE_H})
                 img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
@@ -930,7 +931,7 @@ class SOCUltralight:
         enabled templates, click any that appear, respecting per-template cooldown.
         Reads self._autoclick_enabled (plain set) instead of calling
         BooleanVar.get() to avoid Tcl thread-safety issues."""
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             while self._autoclick_running:
                 try:
                     # Snapshot the enabled set — no Tcl calls from this thread
@@ -1044,7 +1045,7 @@ class SOCUltralight:
             "height": TEMPLATE_CAPTURE,
         }
         try:
-            with mss.MSS() as sct:
+            with _mss_ctor() as sct:
                 raw = sct.grab(region)
                 img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
             fname = f"{agent_id}_{slot}.png"
@@ -1405,7 +1406,7 @@ class SOCUltralight:
     def _ocr_loop(self):
         # Open one mss context for the lifetime of the scan loop — avoids
         # per-tick OS-level context creation/destruction overhead.
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             while self._ocr_running:
                 try:
                     self._ocr_tick(sct)
@@ -1805,7 +1806,7 @@ class SOCUltralight:
                 "        agent2_scroll_dn.png  agent2_scroll_up.png")
             return
         self._log(f"[cal] scanning screen against {len(templates)} templates…")
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             raw = sct.grab(sct.monitors[1])
             screen_img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
         screen_gray = cv2.cvtColor(np.array(screen_img), cv2.COLOR_RGB2GRAY)
@@ -1969,7 +1970,7 @@ class SOCUltralight:
                 send_tpl = self._safe_imread(png, cv2.IMREAD_GRAYSCALE)
         if input_tpl is None and send_tpl is None:
             return None, None
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             raw = sct.grab(sct.monitors[1])
             gray = cv2.cvtColor(
                 np.array(Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")),
@@ -2034,7 +2035,7 @@ class SOCUltralight:
         tpl = self._safe_imread(tpl_path, cv2.IMREAD_GRAYSCALE)
         if tpl is None:
             return None
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             raw = sct.grab(sct.monitors[1])
             gray = cv2.cvtColor(
                 np.array(Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")),
@@ -2088,7 +2089,7 @@ class SOCUltralight:
             _grab_init = {"left": x1, "top": y1,
                           "width": x2 - x1, "height": y2 - y1}
 
-        with mss.MSS() as sct:
+        with _mss_ctor() as sct:
             grab_box = _grab_init if _grab_init else sct.monitors[1]
             for step in range(SCROLL_MAX_STEPS):
                 # 1. OCR current view
