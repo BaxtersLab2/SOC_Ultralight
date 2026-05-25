@@ -1,0 +1,42 @@
+ # SOC ULTRALIGHT — WORKFLOW STRUCTURE FILE (GENERAL TEMPLATE, CLEAN VERSION)
+
+## 1. PROJECT OVERVIEW
+A concise description of the project’s purpose, goals, and intended output.
+(No implementation details here — only the high‑level intent.)
+
+## 2. CORE FEATURES
+List the major functional components the project must include.
+Each feature should be described in general terms without specifying content.
+
+## 3. TECHNICAL STACK
+List the required platforms, languages, frameworks, SDKs, or engines.
+This section defines the environment but not the implementation.
+
+## 4. MODULE BLOCKS (ALPHANUMERIC)
+This is the canonical structure for deterministic agent workflows.
+
+Each module block must:
+- Have a unique alphanumeric ID (e.g., A1, C3, R2, UI4)
+- Contain only atomic, implementation‑ready information
+- Be substance‑agnostic
+- Be deterministic and non‑ambiguous
+- Be suitable for storage by an automated agent
+
+Module block categories may include:
+- Project Structure
+- Dependencies
+- Pipelines (camera, audio, data, rendering, etc.)
+- Processing Modules
+- UI Modules
+- System Modules
+- Assets (placeholders only)
+- Permissions
+- Integration Points
+
+Each block must be formatted as:
+
+[BLOCK_ID] — Block Title  
+```text
+Block contents here.
+Atomic, deterministic, implementation‑ready.
+(No instructions to agents appear inside module blocks.)
