@@ -197,8 +197,33 @@ After routing a message to an agent, SOC **holds** — it pauses routing and wai
 
 - The OCR status label shows `OCR: ⏸ waiting agentX…` and the **↺** button turns red when holding.
 - When the destination agent replies (SOC sees a message addressed to the *other* agent), hold is automatically released.
-- **Hold timeout:** If no reply arrives within 60 seconds, SOC releases hold and re-sends the original message once.
-- **Manual release:** Click the **↺** button to release hold immediately without re-sending.
+- **Hold timeout:** If no reply arrives within 60 seconds, the hold releases. Click **↺** to allow the same message to be re-routed; otherwise SOC waits for new content.
+- **Manual release:** Click the **↺** button at any time to clear the hold and any same-body dedup block.
+
+### Per-Agent Hold Buttons (⏸ Hold A1 / ⏸ Hold A2)
+
+Two manual gate buttons sit below the OCR row. Each one blocks routing **to** that agent until you release it.
+
+**One-shot behaviour:** the hold is not sticky. As soon as one message successfully routes to either agent, both holds automatically release and the ping pong resumes on its own.
+
+**Primary use case — re-entering a workflow:**
+
+When you restart OCR mid-session, both agents may have outgoing messages visible at the same time. Without intervention, SOC reads whichever it sees first and creates a double-fire.
+
+1. Start OCR.
+2. Immediately click **⏸ Hold A2** (or whichever side you want to pause).
+3. Read both agents' pending messages. Pick the better/more correct one to send first.
+4. If the one you want is addressed TO Agent 2 — click **▶ Resume A2**. SOC routes it and both holds drop automatically.
+5. If you want Agent 2's reply to reach Agent 1 first — leave A2 held, click **⏸ Hold A1**, then release A1. Agent 2's message routes, both holds clear, and the sequence continues.
+
+**During a normal session:**
+
+If agents get out of sync (Agent 1 sends a correction while Agent 2 is mid-reply), click the hold button for the side you want to pause, let the priority message through, and the sequence self-corrects. Agent 1 can include alignment instructions in its correction, which Agent 2 will receive on the next routed message.
+
+| Button state | Meaning |
+|---|---|
+| `⏸ Hold A1` (normal) | Idle — routing to Agent 1 is open |
+| `▶ Resume A1` (red) | Held — routing to Agent 1 is blocked |
 
 ---
 
@@ -234,13 +259,15 @@ Every **5th message** sent to Agent 2 and every **10th message** sent to Agent 1
 | `OCR: scanning…` | Normal — both windows being scanned. |
 | `OCR: RAPID ⚡` | Rapid scan active (triggered by seeing `To Agent` on screen). |
 | `OCR: ⏸ waiting agentX…` | Hold active — waiting for that agent to reply. |
-| `↺` | Release hold manually. Red = hold active, normal = clear. |
+| `↺ Release` | Release hold manually. Clears the hold and any same-body dedup block so the message can re-route. |
+| `⏸ Hold A1` | Block routing to Agent 1 (one-shot gate — auto-releases after the next successful send). |
+| `⏸ Hold A2` | Block routing to Agent 2 (one-shot gate — auto-releases after the next successful send). |
 
 ---
 
 ## Other Controls
 
-| Button | Action |
+| Button / Field | Action |
 |---|---|
 | `⌖ Cal` | Run auto-calibration using template matching. |
 | `▶ Agent 1 SOP` | Send the Agent 1 workflow SOP (from `agent1 soc ultralight .txt`). |
@@ -248,9 +275,9 @@ Every **5th message** sent to Agent 2 and every **10th message** sent to Agent 1
 | `▶ Outbox` | Start the file outbox watcher (`outbox/agent1/`, `outbox/agent2/`). |
 | `⚡ VS Code` | One-click: starts outbox watcher + auto-click scan. |
 | `🔵 Bing` | Enable Bing Copilot–aware injection timing (double-click focus, send button polling). |
+| `Project:` field | Type the active project name. SOC prepends `[ACTIVE PROJECT: name]` to every message sent to Agent 1 as an anti-drift reminder. Saved automatically. |
 | `—` (title bar) | Minimize the widget. |
 | `X` (title bar) | Quit. |
-| Inject bar | Type a message and press Enter or click Send to manually inject. Use `to agent1: message` format. |
 
 ---
 
@@ -299,7 +326,7 @@ Click **Copy All** to copy the full log to clipboard.
 Run `python soc_ultralight.py` in a terminal. Read the error. Most common causes: Python not on PATH, Tesseract not installed at the default path, missing package.
 
 **OCR sees the message but does not route it**  
-- Check the log for `[ocr:agentX] trigger=YES sentinel=YES hold=none` — if this shows repeatedly without a `[→agentX]` line, the message body is the same as a recently-routed message (dedup). This resolves on its own once the message content changes.
+- Check the log for `[ocr:agentX] trigger=YES sentinel=YES hold=none` followed by `[dedup] body matches last sent` — the message body is identical to the last one routed. Click **↺ Release** to clear the block and allow it to re-send. This typically happens after a hold timeout where the same message is still on screen.
 - If `trigger=no sentinel=YES`, the `To Agent1/2` header is visible but not matching. Check that the message uses the correct format (header on its own line).
 - If `trigger=YES sentinel=no`, the `end message now` line is not yet visible — wait for the agent to finish generating.
 

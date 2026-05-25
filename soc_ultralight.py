@@ -350,6 +350,7 @@ class SOCUltralight:
         self._waiting_body_hash: str | None = None    # hash to clear when hold times out
         self._last_scroll:       dict[str, float] = {}   # agent_id → last auto-scroll time
         self._last_routed_body:  dict[str, str]  = {}   # agent_id → hash of last body routed to them
+        self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
         self._registry: dict = self._load_registry()  # template training history
@@ -559,6 +560,18 @@ class SOCUltralight:
             bg=BG2, fg=YELLOW, font=("Segoe UI", 8),
             relief="flat", cursor="hand2", padx=6, pady=2)
         self._ocr_release_btn.pack(side="left", padx=(0, 4))
+
+        hold_row = tk.Frame(p, bg=BG, pady=1)
+        hold_row.pack(fill="x", padx=12)
+        self._hold_btns: dict[str, tk.Button] = {}
+        for _aid, _short in [("agent1", "A1"), ("agent2", "A2")]:
+            _btn = tk.Button(
+                hold_row, text=f"⏸ Hold {_short}",
+                command=lambda a=_aid: self._toggle_manual_hold(a),
+                bg=BG2, fg=FG, font=("Segoe UI", 8),
+                relief="flat", cursor="hand2", padx=8, pady=2)
+            _btn.pack(side="left", padx=(0, 4))
+            self._hold_btns[_aid] = _btn
 
         ctrl2 = tk.Frame(p, bg=BG, pady=2)
         ctrl2.pack(fill="x", padx=12)
@@ -1614,6 +1627,10 @@ class SOCUltralight:
                 self._log(f"[ocr] directional skip — '{agent_id}' seen in its own window")
                 return False
 
+            # Manual per-agent hold: user-controlled pause button.
+            if self._manual_hold.get(agent_id):
+                return False
+
             if self._waiting_reply == agent_id:
                 elapsed = time.time() - self._waiting_since
                 if elapsed < WAIT_REPLY_TIMEOUT:
@@ -1629,11 +1646,12 @@ class SOCUltralight:
                     # Timeout: release hold but suppress re-inject.
                     # _last_routed_body[agent_id] stays set so the same body
                     # is dismissed if OCR sees it again. Click ↺ Release to force retry.
+                    # _waiting_body_hash is intentionally kept so ↺ Release can clear
+                    # the dedup ring even after _waiting_reply is gone.
                     self._log(
                         f"[ocr] hold timeout ({int(elapsed)}s) — "
                         f"re-inject suppressed to prevent duplicate; click ↺ Release to force")
                     self._waiting_reply = None
-                    self._waiting_body_hash = None
                     self.root.after(0, self._update_ocr_hold_label)
                     return False
             else:
@@ -1676,6 +1694,12 @@ class SOCUltralight:
                     self._mode = "module_block"
                     self.root.after(0, self._update_mode_indicator)
                     self._log("[mode] ✓ Implementation complete — MODULE BLOCK MODE restored")
+
+            # Auto-release manual holds after one successful route — one-shot gate.
+            if any(self._manual_hold.values()):
+                for k in self._manual_hold:
+                    self._manual_hold[k] = False
+                self.root.after(0, self._reset_hold_buttons)
 
             # Enter hold: wait for the destination agent to reply before routing again
             self._waiting_reply  = agent_id
@@ -1781,18 +1805,51 @@ class SOCUltralight:
 
     def _ocr_release_hold(self):
         """Manually clear the hold state — bound to the ↺ button.
-        Also clears the same-body dedup block so Agent 1 can retry immediately."""
-        if self._waiting_reply:
-            held      = self._waiting_reply
-            body_hash = self._waiting_body_hash
+        Works whether hold is active OR already timed out (post-timeout dedup block).
+        After timeout _waiting_reply is None but _waiting_body_hash and
+        _last_routed_body may still be blocking — this clears them both."""
+        held      = self._waiting_reply
+        body_hash = self._waiting_body_hash
+
+        self._waiting_reply     = None
+        self._waiting_since     = 0.0
+        self._waiting_body_hash = None
+
+        if held:
             self._log(f"[ocr] hold manually released (was waiting for {held}) — body-match block cleared")
-            self._waiting_reply     = None
-            self._waiting_since     = 0.0
-            self._waiting_body_hash = None
             self._last_routed_body.pop(held, None)
-            if body_hash:
-                self._dedup_clear(body_hash)
+        elif self._last_routed_body or body_hash:
+            # Post-timeout: _waiting_reply already cleared at timeout but blocks remain.
+            self._log("[ocr] ↺ — post-timeout body-match blocks cleared, ready to resend")
+            self._last_routed_body.clear()
+
+        if body_hash:
+            self._dedup_clear(body_hash)
+
         self._update_ocr_hold_label()
+
+    def _toggle_manual_hold(self, agent_id: str):
+        """Toggle the per-agent manual hold. While held, OCR will not route TO that agent.
+        Auto-releases after one successful route to any agent (one-shot gate)."""
+        held = not self._manual_hold[agent_id]
+        self._manual_hold[agent_id] = held
+        short = "A1" if agent_id == "agent1" else "A2"
+        btn = self._hold_btns[agent_id]
+        if held:
+            btn.config(text=f"▶ Resume {short}", bg=RED, fg="white",
+                       activebackground="#c04040")
+            self._log(f"[hold] {agent_id} paused — routing to {agent_id} blocked; auto-releases after next send")
+        else:
+            btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG,
+                       activebackground=BG2)
+            self._log(f"[hold] {agent_id} resumed")
+
+    def _reset_hold_buttons(self):
+        """Reset all manual hold buttons to idle state after auto-release."""
+        for aid, btn in self._hold_btns.items():
+            short = "A1" if aid == "agent1" else "A2"
+            btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG, activebackground=BG2)
+        self._log("[hold] holds auto-released — back in sequence")
 
     def _toggle_ocr(self):
         if self._ocr_running:
