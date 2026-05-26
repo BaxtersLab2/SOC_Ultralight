@@ -581,6 +581,17 @@ class SOCUltralight:
         tk.Label(hdr, text="Phase 1a", bg=BG2, fg="#666666",
                  font=("Segoe UI", 8)).pack(side="right", padx=10)
 
+        # Returning-user bypass bar
+        skip_bar = tk.Frame(p, bg="#1a2a1a", pady=3)
+        skip_bar.pack(fill="x")
+        tk.Label(skip_bar, text="Returning? Phase 1a already done →",
+                 bg="#1a2a1a", fg="#888888", font=("Segoe UI", 7)).pack(side="left", padx=8)
+        tk.Button(skip_bar, text="Skip to Phase 2 ▶",
+                  command=lambda: self._show_phase(3),
+                  bg="#1a2a1a", fg=GREEN, font=("Segoe UI", 7, "bold"),
+                  relief="flat", cursor="hand2", padx=6, pady=1
+                  ).pack(side="right", padx=6)
+
         tk.Frame(p, bg=BG, height=4).pack()
 
         # ── Step 1: Workspace ─────────────────────────────────────────
@@ -1056,13 +1067,19 @@ class SOCUltralight:
             self._setup_btn.config(state="normal", fg=YELLOW, activeforeground=YELLOW)
         self.root.after(50, self._fit_window)
 
-    def _phase1_complete(self) -> bool:
+    def _calibration_complete(self) -> bool:
+        """Calibration only — used for startup auto-advance. Does not require attendance."""
         required = ["agent1", "agent2"] if self._bypass_agent3 else ["agent1", "agent2", "agent3"]
-        for aid in required:
-            cfg = self.agents[aid]
-            if not (cfg.hwnd and cfg.input_xy and cfg.send_xy):
-                return False
-        return all(self._attendance.get(aid, False) for aid in required)
+        return all(
+            self.agents[aid].hwnd and self.agents[aid].input_xy and self.agents[aid].send_xy
+            for aid in required)
+
+    def _phase1_complete(self) -> bool:
+        """Full Phase 1 gate — calibration + roll call attendance. Used by Launch button."""
+        return (self._calibration_complete() and
+                all(self._attendance.get(aid, False)
+                    for aid in (["agent1", "agent2"] if self._bypass_agent3
+                                else ["agent1", "agent2", "agent3"])))
 
     def _check_phase1_complete(self):
         if not hasattr(self, "_launch_btn"):
@@ -2911,7 +2928,7 @@ class SOCUltralight:
         self._auto_locate_windows()
         self.root.after(200, self._check_phase1_complete)
         self.root.after(300, lambda: self._show_phase(
-            3 if self._phase1_complete() else 1))
+            3 if self._calibration_complete() else 1))
 
     def _auto_locate_windows(self):
         """Find agent windows by matching saved title strings against open windows."""
