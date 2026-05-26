@@ -1156,7 +1156,43 @@ class SOCUltralight:
                     f"SOC-ACK-{n}"
                 )
                 self._inject_to_agent(aid, msg)
+            # Give agents time to respond, then start watching their windows
+            time.sleep(4)
+            self._roll_call_watch(targets)
+
         threading.Thread(target=_send_all, daemon=True).start()
+
+    def _roll_call_watch(self, targets: list):
+        """Poll OCR regions for SOC-ACK-N responses. Runs outside the main OCR
+        loop so attendance can be detected from Phase 1 before workflow is started."""
+        deadline = time.time() + 120   # give up after 2 minutes
+        with _mss_ctor() as sct:
+            while time.time() < deadline:
+                pending = [aid for aid in targets
+                           if not self._attendance.get(aid)]
+                if not pending:
+                    break
+                for aid in pending:
+                    cfg = self.agents[aid]
+                    if not cfg.ocr_region:
+                        continue
+                    rx0, ry0, rx1, ry1 = cfg.ocr_region
+                    try:
+                        img = ImageGrab.grab(bbox=(rx0, ry0, rx1, ry1), all_screens=True)
+                    except Exception:
+                        grab_box = {"left": rx0, "top": ry0,
+                                    "width": rx1 - rx0, "height": ry1 - ry0}
+                        raw = sct.grab(grab_box)
+                        img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
+                    text = pytesseract.image_to_string(
+                        _prepare_img_for_ocr(img), config="--psm 6")
+                    text = _preprocess_ocr(text)
+                    for m in ROLL_CALL_RE.finditer(text):
+                        digit   = _OCR_DIGIT_NORM.get(m.group(1), m.group(1))
+                        ack_aid = f"agent{digit}"
+                        if ack_aid == aid:
+                            self._mark_attendance(aid)
+                time.sleep(2)
 
     def _mark_attendance(self, aid: str):
         """Record that aid has confirmed presence and refresh UI + phase check."""
