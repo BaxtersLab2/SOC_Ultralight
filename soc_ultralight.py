@@ -722,38 +722,42 @@ class SOCUltralight:
 
         r1 = tk.Frame(outer, bg=BG)
         r1.pack(fill="x")
-        tk.Label(r1, text=label, bg=BG, fg=ACCENT,
-                 font=("Segoe UI", 9, "bold"), width=6, anchor="w"
-                 ).pack(side="left")
-        cfg.lbl_window = tk.Label(r1, text="window: (not set)",
-                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"))
-        cfg.lbl_window.pack(side="left")
+        # Pack Set Win first so Tkinter reserves its space before lbl_window expands
         tk.Button(r1, text="Set Win",
                   command=lambda a=agent_id: self._set_window(a),
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 8),
                   cursor="hand2", padx=4).pack(side="right")
+        tk.Label(r1, text=label, bg=BG, fg=ACCENT,
+                 font=("Segoe UI", 9, "bold"), width=6, anchor="w"
+                 ).pack(side="left")
+        cfg.lbl_window = tk.Label(r1, text="window: (not set)",
+                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"),
+                                   anchor="w")
+        cfg.lbl_window.pack(side="left", fill="x", expand=True)
 
         r2 = tk.Frame(outer, bg=BG)
         r2.pack(fill="x")
-        tk.Label(r2, text="", bg=BG, width=3).pack(side="left")
-        cfg.lbl_input = tk.Label(r2, text="input field: (not set)",
-                                  bg=BG, fg=RED, font=("Segoe UI", 8, "italic"))
-        cfg.lbl_input.pack(side="left")
         tk.Button(r2, text="⊙ Input",
                   command=lambda a=agent_id: self._capture_coord(a, "input"),
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 7),
                   cursor="hand2", padx=4).pack(side="right")
+        tk.Label(r2, text="", bg=BG, width=3).pack(side="left")
+        cfg.lbl_input = tk.Label(r2, text="input field: (not set)",
+                                  bg=BG, fg=RED, font=("Segoe UI", 8, "italic"),
+                                  anchor="w")
+        cfg.lbl_input.pack(side="left", fill="x", expand=True)
 
         r3 = tk.Frame(outer, bg=BG)
         r3.pack(fill="x")
-        tk.Label(r3, text="", bg=BG, width=3).pack(side="left")
-        cfg.lbl_send = tk.Label(r3, text="send button: (not set)",
-                                 bg=BG, fg=RED, font=("Segoe UI", 8, "italic"))
-        cfg.lbl_send.pack(side="left")
         tk.Button(r3, text="⊙ Send",
                   command=lambda a=agent_id: self._capture_coord(a, "send"),
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 7),
                   cursor="hand2", padx=4).pack(side="right")
+        tk.Label(r3, text="", bg=BG, width=3).pack(side="left")
+        cfg.lbl_send = tk.Label(r3, text="send button: (not set)",
+                                 bg=BG, fg=RED, font=("Segoe UI", 8, "italic"),
+                                 anchor="w")
+        cfg.lbl_send.pack(side="left", fill="x", expand=True)
 
         # Row: Edge prefix (Agent 1 only — Bing/Edge browser noise filter)
         if agent_id == "agent1":
@@ -775,10 +779,6 @@ class SOCUltralight:
         # Row 5: scroll coords (set by ⌖ Calibrate or hover-capture)
         r5 = tk.Frame(outer, bg=BG)
         r5.pack(fill="x")
-        tk.Label(r5, text="", bg=BG, width=3).pack(side="left")
-        cfg.lbl_scroll = tk.Label(r5, text="scroll: (not set)",
-                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"))
-        cfg.lbl_scroll.pack(side="left")
         tk.Button(r5, text="Read",
                   command=lambda a=agent_id: self._start_scroll_read(a),
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 8),
@@ -791,18 +791,24 @@ class SOCUltralight:
                   command=lambda a=agent_id: self._capture_coord(a, "scroll_up"),
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 7),
                   cursor="hand2", padx=4).pack(side="right", padx=(0, 2))
+        tk.Label(r5, text="", bg=BG, width=3).pack(side="left")
+        cfg.lbl_scroll = tk.Label(r5, text="scroll: (not set)",
+                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"),
+                                   anchor="w")
+        cfg.lbl_scroll.pack(side="left", fill="x", expand=True)
 
         # Row 6: OCR output region
         r6 = tk.Frame(outer, bg=BG)
         r6.pack(fill="x")
-        tk.Label(r6, text="", bg=BG, width=3).pack(side="left")
-        cfg.lbl_region = tk.Label(r6, text="ocr region: (not set)",
-                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"))
-        cfg.lbl_region.pack(side="left")
         tk.Button(r6, text="⎕ Region",
                   command=lambda a=agent_id: self._calibrate_ocr_region(a),
                   bg=BG2, fg=YELLOW, relief="flat", font=("Segoe UI", 7),
                   cursor="hand2", padx=4).pack(side="right")
+        tk.Label(r6, text="", bg=BG, width=3).pack(side="left")
+        cfg.lbl_region = tk.Label(r6, text="ocr region: (not set)",
+                                   bg=BG, fg=RED, font=("Segoe UI", 8, "italic"),
+                                   anchor="w")
+        cfg.lbl_region.pack(side="left", fill="x", expand=True)
 
     # ── OCR region calibration overlay ───────────────────────────────────────────
 
