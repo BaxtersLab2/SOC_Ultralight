@@ -212,7 +212,17 @@ _D = r"[123liI!|t]"  # digit-or-garble character class
 
 # Multi-char garble pre-normaliser: "Agentt" / "Agentll" → "Agent1"
 _AGENT_REF_GARBLE_RE = re.compile(r"(?i)(to\s+agent\s*)([liI!|t]{2,}|[zZ]{2,}|[B8]{2,})")
+_EDGE_METADATA_RE = re.compile(
+    r"(?i)(edge_all_open_tabs\s*=.*?(?=\n[A-Z]|\Z)|"
+    r"#\s*User.s Edge browser tabs.*?(?=\n[A-Z]|\Z)|"
+    r"\{\"pageTitle\".*?\}[\],]*)",
+    re.DOTALL)
+
 def _preprocess_ocr(text: str) -> str:
+    # Strip Edge browser tab-metadata blocks — they change on every tab switch
+    # but contain no routing content, so including them in the text hash causes
+    # spurious _ocr_process calls without any real message change.
+    text = _EDGE_METADATA_RE.sub("", text)
     def _fix(m: re.Match) -> str:
         first = m.group(2)[0].lower()
         digit = "1" if first in "liit|!" else "2" if first in "z" else "3"
