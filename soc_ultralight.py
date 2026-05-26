@@ -90,9 +90,10 @@ pytesseract.pytesseract.tesseract_cmd = _tess_path
 SCAN_NORMAL      = 1.5    # seconds between OCR scans (idle)
 SCAN_RAPID       = 0.3    # seconds between scans in rapid mode
 RAPID_DURATION   = 8.0    # seconds to stay rapid after "to agent" spotted
-WAIT_REPLY_TIMEOUT  = 60.0   # seconds before hold state auto-releases
-HOLD_LOG_INTERVAL   = 30.0   # log "holding" at most this often (seconds)
-HOLD_SCROLL_INTERVAL = 3.0   # scroll held agent window down every N seconds
+WAIT_REPLY_TIMEOUT   = 180.0  # seconds before hold state auto-releases (3 min for large blocks)
+HOLD_LOG_INTERVAL    = 30.0   # log "holding" at most this often (seconds)
+HOLD_SCROLL_INTERVAL = 3.0    # scroll held agent window down every N seconds
+SCROLL_GRACE         = 60.0   # seconds to keep scrolling after hold times out
 PASTE_DELAY      = 0.25   # seconds after window focus before paste
 SEND_DELAY       = 2.0    # seconds after paste before clicking Send
                           # (VS Code/Bing send button only appears after text is entered)
@@ -218,7 +219,10 @@ def _preprocess_ocr(text: str) -> str:
 
 def _prepare_img_for_ocr(img: Image.Image) -> Image.Image:
     """Preprocess a screenshot for Tesseract.
-    Auto-inverts dark-theme captures so Tesseract always gets dark-on-light."""
+    Auto-inverts dark-theme captures so Tesseract always gets dark-on-light.
+    2× upscale before processing: screen captures are ~96 DPI but Tesseract
+    performs best at 300 DPI — scaling up significantly improves digit accuracy."""
+    img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
     img = img.convert("L")                           # greyscale
     avg = ImageStat.Stat(img).mean[0]
     if avg < 128:                                    # dark background → invert
@@ -349,6 +353,7 @@ class SOCUltralight:
         self._dedup_lock        = threading.Lock()    # guards _seen_hashes
         self._waiting_body_hash: str | None = None    # hash to clear when hold times out
         self._last_scroll:       dict[str, float] = {}   # agent_id → last auto-scroll time
+        self._scroll_grace:      dict[str, float] = {}   # agent_id → keep scrolling until this time
         self._last_routed_body:  dict[str, str]  = {}   # agent_id → hash of last body routed to them
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
@@ -1654,6 +1659,9 @@ class SOCUltralight:
                     # is dismissed if OCR sees it again. Click ↺ Release to force retry.
                     # _waiting_body_hash is intentionally kept so ↺ Release can clear
                     # the dedup ring even after _waiting_reply is gone.
+                    # Continue scrolling agent_id's window for SCROLL_GRACE seconds so
+                    # a late reply that arrives after timeout stays in the OCR region.
+                    self._scroll_grace[agent_id] = time.time() + SCROLL_GRACE
                     self._log(
                         f"[ocr] hold timeout ({int(elapsed)}s) — "
                         f"re-inject suppressed to prevent duplicate; click ↺ Release to force")
@@ -1955,7 +1963,7 @@ class SOCUltralight:
 
             # Auto-scroll: if we're waiting for THIS agent to reply, scroll its
             # window down so the tail of a long response stays in the OCR region.
-            if self._waiting_reply == aid:
+            if self._waiting_reply == aid or time.time() < self._scroll_grace.get(aid, 0):
                 now = time.time()
                 if now - self._last_scroll.get(aid, 0) >= HOLD_SCROLL_INTERVAL:
                     self._last_scroll[aid] = now
