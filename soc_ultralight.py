@@ -947,9 +947,15 @@ class SOCUltralight:
         coach_row = tk.Frame(p, bg=BG, pady=1)
         coach_row.pack(fill="x", padx=12)
         tk.Button(
-            coach_row, text="⟳ Coach A1 — Module Block Reminder",
+            coach_row, text="⟳ Coach A1",
             command=self._send_coaching_message,
             bg=BG2, fg=YELLOW, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=8, pady=2
+        ).pack(side="left", padx=(0, 4))
+        tk.Button(
+            coach_row, text="? Quiz A1",
+            command=self._send_quiz_message,
+            bg=BG2, fg=ORANGE, font=("Segoe UI", 8),
             relief="flat", cursor="hand2", padx=8, pady=2
         ).pack(side="left")
 
@@ -2445,6 +2451,26 @@ class SOCUltralight:
             target=lambda: self._inject_to_agent("agent1", msg),
             daemon=True).start()
         self._log("[coach] module block reminder sent to Agent 1")
+
+    def _send_quiz_message(self):
+        """Ask Agent 1 to confirm its awareness of project scope and remaining work."""
+        project = self._project_name_var.get().strip()
+        project_line = f"Active project: {project}\n\n" if project else ""
+        msg = (
+            f"[SOC QUIZ — PROJECT STATUS CHECK]\n"
+            f"{project_line}"
+            "Please confirm your current awareness:\n\n"
+            "1. How many lettered modules (crates) does this project have? "
+            "List each letter and its crate name.\n"
+            "2. How many blocks have been delivered to Agent 2 so far?\n"
+            "3. Approximately how many blocks remain before all are saved "
+            "and the project can be executed?\n"
+            "4. What is the coordinate of the next block to be sent?"
+        )
+        threading.Thread(
+            target=lambda: self._inject_to_agent("agent1", msg),
+            daemon=True).start()
+        self._log("[quiz] project status check sent to Agent 1")
 
     def _welfare_check(self):
         """Send a compact re-sync prompt directly to both agents so they can self-locate
