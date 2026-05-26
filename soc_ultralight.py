@@ -1682,21 +1682,26 @@ class SOCUltralight:
                     self._waiting_reply = None
                     self.root.after(0, self._update_ocr_hold_label)
                     return False
-            else:
-                if self._waiting_reply and self._waiting_reply != agent_id:
-                    self._log(
-                        f"[ocr] ✓ reply received from {self._waiting_reply} "
-                        f"— hold released")
-                    self._waiting_reply = None
-                    self._waiting_body_hash = None
-                    self.root.after(0, self._update_ocr_hold_label)
 
             # Body-match guard: dismiss if this is the same body we last routed to
-            # this agent. Cleared when the other agent replies. Click ↺ to override.
+            # this agent. Guard persists until new content naturally replaces it.
+            # Checked BEFORE hold-release so stale in-window content cannot trigger
+            # a premature hold-release.
             body_h = self._msg_hash(body)
             if body_h == self._last_routed_body.get(agent_id):
                 self._log(f"[dedup] body matches last sent to {agent_id} — dismissed (↺ to override)")
                 return False
+
+            # Hold-release: fires AFTER body-match confirms this is genuinely new content.
+            # Old in-window messages (e.g. A-65 still visible) are caught above and never
+            # reach this point, so they cannot prematurely release the hold.
+            if self._waiting_reply and self._waiting_reply != agent_id:
+                self._log(
+                    f"[ocr] ✓ reply received from {self._waiting_reply} "
+                    f"— hold released")
+                self._waiting_reply = None
+                self._waiting_body_hash = None
+                self.root.after(0, self._update_ocr_hold_label)
 
             if not self._dedup(body):
                 return False
@@ -1708,13 +1713,11 @@ class SOCUltralight:
             self._last_route_time = time.time()
             self._welfare_fired   = False
 
-            # Update body-match guard: record what we just sent.
-            # When the destination replies (routes to the other agent), the other
-            # agent's entry is cleared so its next outbound can go through.
+            # Update body-match guard: record what we just sent to this agent.
+            # Do NOT clear the other agent's guard here — it must stay set until
+            # new content from that agent naturally replaces it. Clearing it early
+            # was the root cause of duplicate blocks being re-routed after hold release.
             self._last_routed_body[agent_id] = body_h
-            other = {"agent1": "agent2", "agent2": "agent1"}.get(agent_id)
-            if other:
-                self._last_routed_body.pop(other, None)
 
             # Mode trigger: only fires when the phrase is the BODY of a routed message.
             body_low = body.lower()
