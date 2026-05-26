@@ -94,8 +94,7 @@ WAIT_REPLY_TIMEOUT   = 180.0  # seconds before hold state auto-releases (3 min f
 HOLD_LOG_INTERVAL    = 30.0   # log "holding" at most this often (seconds)
 HOLD_SCROLL_INTERVAL = 3.0    # scroll held agent window down every N seconds
 SCROLL_GRACE         = 60.0   # seconds to keep scrolling after hold times out
-AUTO_WELFARE_TIMEOUT = 600.0  # seconds since last successful route before auto-welfare fires (10 min)
-HEARTBEAT_IDLE       = 60.0   # seconds a region must be pixel-static before welfare is allowed
+HEARTBEAT_IDLE       = 120.0  # seconds region must be pixel-static → triggers auto-welfare (2 min)
 PASTE_DELAY      = 0.25   # seconds after window focus before paste
 SEND_DELAY       = 2.0    # seconds after paste before clicking Send
                           # (VS Code/Bing send button only appears after text is entered)
@@ -1968,28 +1967,26 @@ class SOCUltralight:
             while self._ocr_running:
                 try:
                     self._ocr_tick(sct)
-                    # Auto-welfare: if no successful route for 10 minutes AND the
-                    # waited agent's region has been pixel-static for HEARTBEAT_IDLE
-                    # seconds, fire once. If region is still changing (agent generating
-                    # text) suppress welfare — agent is working, just hasn't sent yet.
-                    if (not self._welfare_fired
-                            and time.time() - self._last_route_time > AUTO_WELFARE_TIMEOUT):
-                        check_aid  = self._waiting_reply or "agent2"
-                        idle_secs  = time.time() - self._region_last_change.get(check_aid, 0)
-                        if idle_secs >= HEARTBEAT_IDLE:
+                    # Auto-welfare: region pixel-static for 2 min AND routing quiet
+                    # for 2 min → fire once. Region still changing = agent working,
+                    # welfare suppressed regardless of routing silence.
+                    if not self._welfare_fired:
+                        check_aid   = self._waiting_reply or "agent2"
+                        idle_secs   = time.time() - self._region_last_change.get(check_aid, 0)
+                        route_gap   = time.time() - self._last_route_time
+                        if idle_secs >= HEARTBEAT_IDLE and route_gap >= HEARTBEAT_IDLE:
                             self._welfare_fired = True
                             self._log(
-                                f"[welfare] ⟳ auto — no routing for "
-                                f"{int(time.time()-self._last_route_time)}s, "
-                                f"{check_aid} region static {int(idle_secs)}s → sending welfare check")
+                                f"[welfare] ⟳ auto — {check_aid} region static "
+                                f"{int(idle_secs)}s, no routing {int(route_gap)}s → sending welfare check")
                             self.root.after(0, self._welfare_check)
-                        else:
+                        elif route_gap >= HEARTBEAT_IDLE:
                             now = time.time()
                             if now - self._last_heartbeat_log >= HOLD_LOG_INTERVAL:
                                 self._last_heartbeat_log = now
                                 self._log(
-                                    f"[heartbeat] {check_aid} region active "
-                                    f"(changed {int(idle_secs)}s ago) — welfare suppressed, agent still working")
+                                    f"[heartbeat] {check_aid} still moving "
+                                    f"(changed {int(idle_secs)}s ago) — welfare suppressed")
                 except OSError as e:
                     if "tesseract" in str(e).lower():
                         self._log(
