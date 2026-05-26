@@ -13,5 +13,4 @@ if errorlevel 1 (
 	exit /b 1
 )
 echo Launching SOC Ultralight...
-for /f "delims=" %%i in ('"%PYTHON%" -c "import sys,os; print(os.path.join(os.path.dirname(sys.executable),'pythonw.exe'))"') do set PYWEXE=%%i
-start "" "%PYWEXE%" soc_ultralight.py
+start "" pythonw soc_ultralight.py
