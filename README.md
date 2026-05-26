@@ -9,6 +9,10 @@
 
 ---
 
+> **New to SOC Ultralight?** See [QUICKSTART.md](QUICKSTART.md) for a step-by-step guide to running your first dual-agent project, including the project summary template and the prompt to give Bing Copilot.
+
+---
+
 ## What It Does
 
 SOC Ultralight (Screen OCR Controller) sits in the corner of your screen and watches your AI chat windows. When one agent writes a protocol message, SOC reads it via OCR, extracts the content, and pastes it directly into the destination agent's input field — then clicks Send automatically.
