@@ -363,6 +363,7 @@ class SOCUltralight:
         self._region_frame:      dict[str, str]   = {} # agent_id → pixel-hash of last captured frame
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
+        self._paused:            bool = False
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
         self._registry: dict = self._load_registry()  # template training history
@@ -584,6 +585,12 @@ class SOCUltralight:
                 relief="flat", cursor="hand2", padx=8, pady=2)
             _btn.pack(side="left", padx=(0, 4))
             self._hold_btns[_aid] = _btn
+        self._pause_btn = tk.Button(
+            hold_row, text="⏸ Pause",
+            command=self._toggle_pause,
+            bg=BG2, fg=FG, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=8, pady=2)
+        self._pause_btn.pack(side="left", padx=(0, 4))
         tk.Button(
             hold_row, text="⟳ Welfare",
             command=self._welfare_check,
@@ -1651,6 +1658,10 @@ class SOCUltralight:
                 self._log(f"[ocr] directional skip — '{agent_id}' seen in its own window")
                 return False
 
+            # Global pause: OCR keeps scanning but nothing injects.
+            if self._paused:
+                return False
+
             # Manual per-agent hold: blocks routing FROM the held agent's window.
             # Hold A1 = pause agent1's outgoing messages (source_agent="agent1" blocked).
             if source_agent and self._manual_hold.get(source_agent):
@@ -1880,6 +1891,22 @@ class SOCUltralight:
             btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG,
                        activebackground=BG2)
             self._log(f"[hold] {agent_id} resumed")
+
+    def _toggle_pause(self):
+        """Pause/resume all routing. While paused OCR keeps scanning but nothing injects.
+        On resume, body-match guards are cleared so current window content routes fresh."""
+        self._paused = not self._paused
+        if self._paused:
+            self._pause_btn.config(text="▶ Resume", bg=RED, fg="white",
+                                   activebackground="#c04040")
+            self._log("[pause] ⏸ workflow paused — coach your agents, then click ▶ Resume")
+        else:
+            self._last_routed_body.clear()
+            self._welfare_fired   = False
+            self._last_route_time = time.time()
+            self._pause_btn.config(text="⏸ Pause", bg=BG2, fg=FG,
+                                   activebackground=BG2)
+            self._log("[pause] ▶ workflow resumed — body-match cleared, routing live")
 
     def _reset_hold_buttons(self):
         """Reset all manual hold buttons to idle state after auto-release."""
