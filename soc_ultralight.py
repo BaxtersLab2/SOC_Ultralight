@@ -1011,12 +1011,15 @@ class SOCUltralight:
             bg=BG2, fg=FG, font=("Segoe UI", 8),
             relief="flat", cursor="hand2", padx=8, pady=2)
         self._pause_btn.pack(side="left", padx=(0, 4))
+
+        welfare_row = tk.Frame(p, bg=BG, pady=2)
+        welfare_row.pack(fill="x", padx=12)
         tk.Button(
-            hold_row, text="⟳ Welfare",
+            welfare_row, text="⟳  Where Am I  —  Welfare Check",
             command=self._welfare_check,
-            bg=BG2, fg=ORANGE, font=("Segoe UI", 8),
-            relief="flat", cursor="hand2", padx=6, pady=2
-        ).pack(side="right")
+            bg=BG2, fg=ORANGE, font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", pady=4, anchor="center"
+        ).pack(fill="x")
 
         ctrl2 = tk.Frame(p, bg=BG, pady=2)
         ctrl2.pack(fill="x", padx=12)
@@ -2531,22 +2534,33 @@ class SOCUltralight:
         last_to_a2 = self._last_routed_text.get("agent2", "(none recorded)")
         last_to_a1 = self._last_routed_text.get("agent1", "(none recorded)")
 
-        # Message to agent2 (Claude Code) — ask it to confirm its last block
+        project_line = f"[ACTIVE PROJECT: {self._project_name}]\n\n" if self._project_name else ""
+
+        # Agent 2 — state position and resend confirmation if a block is pending
         msg_a2 = (
-            "[SOC WELFARE CHECK]\n"
-            f"Last block SOC sent you:  {last_to_a2}\n"
-            f"Last reply SOC got from you:  {last_to_a1}\n"
-            "If you have processed the block, resend your confirmation now:\n"
-            "To Agent1\nmodule block [X] saved, ready for next block\nend message now"
+            f"{project_line}"
+            "[SOC — WHERE AM I]\n"
+            f"Last block SOC delivered to you: {last_to_a2}\n\n"
+            "State your current position:\n"
+            "1. What is the last block ID you successfully saved?\n"
+            "2. Are you ready to receive the next block, or is one pending?\n\n"
+            "If a block is saved and unconfirmed, resend confirmation now:\n"
+            "To Agent1\n"
+            "module block [BLOCK_ID] saved, ready for next block\n"
+            "end message now"
         )
 
-        # Message to agent1 (Bing Copilot) — orient it and ask it to re-engage
+        # Agent 1 — orient and re-engage with the correct next block
         msg_a1 = (
-            "[SOC WELFARE CHECK]\n"
-            f"Last block SOC received from you:  {last_to_a2}\n"
-            f"Last Agent2 confirmation SOC forwarded:  {last_to_a1}\n"
-            "Sequence stalled. Please verify your position and send the next block "
-            "or resend the last one if Agent2 has not confirmed it."
+            f"{project_line}"
+            "[SOC — WHERE AM I]\n"
+            f"Last block SOC received from you: {last_to_a2}\n"
+            f"Last Agent 2 confirmation SOC forwarded to you: {last_to_a1}\n\n"
+            "State your current position:\n"
+            "1. What is the last block ID you delivered to Agent 2?\n"
+            "2. Has Agent 2 confirmed that block?\n"
+            "3. What is the next block ID you need to send?\n\n"
+            "Then send the next block in the standard relay format."
         )
 
         self._log(f"[welfare] sending re-sync to agent1 and agent2")
