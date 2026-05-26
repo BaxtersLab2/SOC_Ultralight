@@ -95,6 +95,7 @@ HOLD_LOG_INTERVAL    = 30.0   # log "holding" at most this often (seconds)
 HOLD_SCROLL_INTERVAL = 3.0    # scroll held agent window down every N seconds
 SCROLL_GRACE         = 60.0   # seconds to keep scrolling after hold times out
 AUTO_WELFARE_TIMEOUT = 600.0  # seconds since last successful route before auto-welfare fires (10 min)
+HEARTBEAT_IDLE       = 60.0   # seconds a region must be pixel-static before welfare is allowed
 PASTE_DELAY      = 0.25   # seconds after window focus before paste
 SEND_DELAY       = 2.0    # seconds after paste before clicking Send
                           # (VS Code/Bing send button only appears after text is entered)
@@ -344,6 +345,7 @@ class SOCUltralight:
         self._waiting_reply: str | None = None   # agent we just sent to; hold until they reply
         self._waiting_since: float      = 0.0    # epoch time the hold started
         self._last_hold_log: float      = 0.0    # throttle hold log to once per 30s
+        self._last_heartbeat_log: float = 0.0   # throttle heartbeat-suppressed log
 
         self._fw_running  = False
         self._fw_thread   = None
@@ -359,6 +361,8 @@ class SOCUltralight:
         self._last_routed_text:  dict[str, str]  = {}   # agent_id → first line of last body (welfare check)
         self._last_route_time:   float = time.time()    # when last successful route happened
         self._welfare_fired:     bool  = False          # True after auto-welfare fires; reset on next successful route
+        self._region_frame:      dict[str, str]   = {} # agent_id → pixel-hash of last captured frame
+        self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
@@ -1964,14 +1968,28 @@ class SOCUltralight:
             while self._ocr_running:
                 try:
                     self._ocr_tick(sct)
-                    # Auto-welfare: if no successful route for 10 minutes, fire once.
-                    # Does not repeat — if welfare itself gets no response the flag stays
-                    # True and the system pends human intervention.
+                    # Auto-welfare: if no successful route for 10 minutes AND the
+                    # waited agent's region has been pixel-static for HEARTBEAT_IDLE
+                    # seconds, fire once. If region is still changing (agent generating
+                    # text) suppress welfare — agent is working, just hasn't sent yet.
                     if (not self._welfare_fired
                             and time.time() - self._last_route_time > AUTO_WELFARE_TIMEOUT):
-                        self._welfare_fired = True
-                        self._log("[welfare] ⟳ auto — no routing for 10 min; sending welfare check")
-                        self.root.after(0, self._welfare_check)
+                        check_aid  = self._waiting_reply or "agent2"
+                        idle_secs  = time.time() - self._region_last_change.get(check_aid, 0)
+                        if idle_secs >= HEARTBEAT_IDLE:
+                            self._welfare_fired = True
+                            self._log(
+                                f"[welfare] ⟳ auto — no routing for "
+                                f"{int(time.time()-self._last_route_time)}s, "
+                                f"{check_aid} region static {int(idle_secs)}s → sending welfare check")
+                            self.root.after(0, self._welfare_check)
+                        else:
+                            now = time.time()
+                            if now - self._last_heartbeat_log >= HOLD_LOG_INTERVAL:
+                                self._last_heartbeat_log = now
+                                self._log(
+                                    f"[heartbeat] {check_aid} region active "
+                                    f"(changed {int(idle_secs)}s ago) — welfare suppressed, agent still working")
                 except OSError as e:
                     if "tesseract" in str(e).lower():
                         self._log(
@@ -2023,6 +2041,15 @@ class SOCUltralight:
                             "width": rx1 - rx0, "height": ry1 - ry0}
                 raw = sct.grab(grab_box)
                 img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
+
+            # Heartbeat: compare 32×32 thumbnail pixel-hash to previous frame.
+            # Any pixel change (new text, cursor blink, scroll) counts as activity.
+            thumb_h = hashlib.md5(
+                img.resize((32, 32), Image.NEAREST).tobytes()).hexdigest()
+            if self._region_frame.get(aid) != thumb_h:
+                self._region_frame[aid]       = thumb_h
+                self._region_last_change[aid] = time.time()
+
             text = pytesseract.image_to_string(_prepare_img_for_ocr(img), config="--psm 6")
             low  = text.lower()
             has_trigger  = bool(TRIGGER_RE.search(text))
