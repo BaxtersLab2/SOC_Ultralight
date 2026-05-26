@@ -50,6 +50,7 @@ Effectively gives a browser-only chat agent reach into the local filesystem
 via OCR as the communication channel.
 """
 
+import os
 import sys
 import ctypes
 import tkinter as tk
@@ -364,6 +365,9 @@ class SOCUltralight:
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._paused:            bool = False
+        self._p1a_summary_file:  str  = ""
+        self._p1a_summary_sent:  bool = False
+        self._p1a_template_sent: bool = False
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
         self._registry: dict = self._load_registry()  # template training history
@@ -434,9 +438,11 @@ class SOCUltralight:
         self._build_titlebar()
         self._slide = tk.Frame(self.root, bg=BG)
         self._slide.pack(fill="x")
-        self._p1_frame = tk.Frame(self._slide, bg=BG)
-        self._p2_frame = tk.Frame(self._slide, bg=BG)
+        self._p1_frame  = tk.Frame(self._slide, bg=BG)
+        self._p1a_frame = tk.Frame(self._slide, bg=BG)
+        self._p2_frame  = tk.Frame(self._slide, bg=BG)
         self._build_phase1_ui()
+        self._build_phase1a_ui()
         self._build_phase2_ui()
         self._build_log_status()
         self._show_phase(1)
@@ -510,10 +516,175 @@ class SOCUltralight:
         tk.Frame(p, bg=BG, height=6).pack()
         self._launch_btn = tk.Button(
             p, text="→ Launch Workflow  (0/6 ready)",
-            command=lambda: self._show_phase(2),
+            command=lambda: self._show_phase(2),   # → Phase 1a (project priming)
             bg=BG2, fg="#666666", font=("Segoe UI", 10, "bold"),
             relief="flat", cursor="hand2", pady=6, state="disabled")
         self._launch_btn.pack(fill="x", padx=12, pady=(0, 8))
+
+    def _build_phase1a_ui(self):
+        p = self._p1a_frame
+
+        # Header
+        hdr = tk.Frame(p, bg=BG2, pady=4)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Project Priming", bg=BG2, fg=YELLOW,
+                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=10)
+        tk.Label(hdr, text="Phase 1a", bg=BG2, fg="#666666",
+                 font=("Segoe UI", 8)).pack(side="right", padx=10)
+
+        tk.Frame(p, bg=BG, height=4).pack()
+
+        # ── Summary section ──────────────────────────────────────────
+        tk.Label(p, text="1. Load project summary into Agent 1",
+                 bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
+                 anchor="w").pack(fill="x", padx=12, pady=(4, 2))
+
+        sum_row = tk.Frame(p, bg=BG)
+        sum_row.pack(fill="x", padx=12)
+        tk.Button(sum_row, text="▶ Brainstorm", command=self._p1a_brainstorm,
+                  bg=BG2, fg=ACCENT, font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=8, pady=2
+                  ).pack(side="left", padx=(0, 4))
+        tk.Button(sum_row, text="Browse…", command=self._p1a_browse,
+                  bg=BG2, fg=FG, font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=8, pady=2
+                  ).pack(side="left")
+
+        self._p1a_file_lbl = tk.Label(p, text="No file selected",
+                 bg=BG, fg="#666666", font=("Segoe UI", 7),
+                 anchor="w", wraplength=230)
+        self._p1a_file_lbl.pack(fill="x", padx=12, pady=(2, 0))
+
+        self._p1a_inject_btn = tk.Button(
+            p, text="→ Inject Summary into Agent 1",
+            command=self._p1a_inject_summary,
+            bg=BG2, fg=FG, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", pady=3, state="disabled")
+        self._p1a_inject_btn.pack(fill="x", padx=12, pady=(4, 0))
+
+        self._p1a_sum_ready_btn = tk.Button(
+            p, text="✓ Summary Ready",
+            command=self._p1a_toggle_summary_ready,
+            bg=BG2, fg="#666666", font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", pady=3)
+        self._p1a_sum_ready_btn.pack(fill="x", padx=12, pady=(4, 0))
+
+        tk.Frame(p, bg="#333333", height=1).pack(fill="x", padx=12, pady=6)
+
+        # ── Template section ─────────────────────────────────────────
+        tk.Label(p, text="2. Send module block template to Agent 1",
+                 bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
+                 anchor="w").pack(fill="x", padx=12, pady=(0, 2))
+
+        self._p1a_tmpl_btn = tk.Button(
+            p, text="→ Send Template to Agent 1",
+            command=self._p1a_send_template,
+            bg=BG2, fg="#666666", font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", pady=3, state="disabled")
+        self._p1a_tmpl_btn.pack(fill="x", padx=12, pady=(0, 6))
+
+        # ── Advance ──────────────────────────────────────────────────
+        tk.Frame(p, bg=BG, height=2).pack()
+        self._p1a_advance_btn = tk.Button(
+            p, text="→ Begin Workflow",
+            command=lambda: self._show_phase(3),
+            bg=BG2, fg="#666666", font=("Segoe UI", 10, "bold"),
+            relief="flat", cursor="hand2", pady=6, state="disabled")
+        self._p1a_advance_btn.pack(fill="x", padx=12, pady=(0, 8))
+
+    def _p1a_browse(self):
+        import tkinter.filedialog as fd
+        path = fd.askopenfilename(
+            title="Select project summary",
+            filetypes=[("Text / Markdown", "*.md *.txt"), ("All files", "*.*")])
+        if not path:
+            return
+        self._p1a_summary_file = path
+        self._p1a_file_lbl.config(text=os.path.basename(path), fg=FG)
+        self._p1a_inject_btn.config(state="normal", fg=ACCENT)
+
+    def _p1a_brainstorm(self):
+        starter = (
+            "I want to describe a software project I'm planning to build. "
+            "Please help me think through the scope, features, technical stack, "
+            "and any constraints, then produce a complete project summary when we "
+            "are satisfied with the design. I'll tell you when to write the summary."
+        )
+        threading.Thread(
+            target=lambda: self._inject_to_agent("agent1", starter),
+            daemon=True).start()
+        self._p1a_sum_ready_btn.config(fg=FG)
+        self._log("[priming] brainstorm prompt sent to Agent 1")
+
+    def _p1a_inject_summary(self):
+        if not self._p1a_summary_file:
+            return
+        try:
+            with open(self._p1a_summary_file, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+        except Exception as e:
+            self._log(f"[priming] could not read file: {e}")
+            return
+        msg = (
+            "Here is the project summary. Read it fully before responding. "
+            "Confirm you understand the scope, then ask me any clarifying questions "
+            "before we proceed to decomposition.\n\n"
+            f"{content}"
+        )
+        threading.Thread(
+            target=lambda: self._inject_to_agent("agent1", msg),
+            daemon=True).start()
+        self._p1a_sum_ready_btn.config(fg=FG)
+        self._log(f"[priming] project summary injected to Agent 1 ({len(content)} chars)")
+
+    def _p1a_toggle_summary_ready(self):
+        self._p1a_summary_sent = not self._p1a_summary_sent
+        if self._p1a_summary_sent:
+            self._p1a_sum_ready_btn.config(bg=GREEN, fg="white", text="✓ Summary Ready")
+            self._p1a_tmpl_btn.config(state="normal", fg=ACCENT)
+            self._log("[priming] summary marked ready — send template when Agent 1 is set")
+        else:
+            self._p1a_sum_ready_btn.config(bg=BG2, fg="#666666", text="✓ Summary Ready")
+            self._p1a_tmpl_btn.config(state="disabled", fg="#666666")
+            self._p1a_template_sent = False
+            self._p1a_advance_btn.config(state="disabled", fg="#666666")
+        self._p1a_check_advance()
+
+    def _p1a_send_template(self):
+        tmpl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "templates", "GENERAL_MODULE_BLOCK_TEMPLATE.md")
+        try:
+            with open(tmpl_path, "r", encoding="utf-8") as f:
+                tmpl = f.read().strip()
+        except Exception as e:
+            self._log(f"[priming] could not read template: {e}")
+            return
+        msg = (
+            "Here is the module block format template. Use this structure to "
+            "decompose the project summary into module blocks. Deliver each block "
+            "to Agent 2 via the relay using exactly this format:\n\n"
+            "To Agent2\n[full block content]\nend message now\n\n"
+            "After sending each block, WAIT for Agent 2's confirmation reply "
+            "before sending the next one. When all blocks are delivered, send:\n\n"
+            "To Agent2\nthat is the final block you may begin implementation "
+            "in alphanumeric order now\nend message now\n\n"
+            f"TEMPLATE:\n\n{tmpl}"
+        )
+        threading.Thread(
+            target=lambda: self._inject_to_agent("agent1", msg),
+            daemon=True).start()
+        self._p1a_template_sent = True
+        self._p1a_tmpl_btn.config(bg=GREEN, fg="white", text="✓ Template Sent")
+        self._log("[priming] module block template sent to Agent 1")
+        self._p1a_check_advance()
+
+    def _p1a_check_advance(self):
+        if self._p1a_summary_sent and self._p1a_template_sent:
+            self._p1a_advance_btn.config(state="normal", fg=FG, bg=ACCENT,
+                                         activebackground=ACCENT)
+        else:
+            self._p1a_advance_btn.config(state="disabled", fg="#666666",
+                                         bg=BG2, activebackground=BG2)
 
     def _build_phase2_ui(self):
         p = self._p2_frame
@@ -664,12 +835,16 @@ class SOCUltralight:
 
     def _show_phase(self, n: int):
         self._current_phase = n
+        self._p1_frame.pack_forget()
+        self._p1a_frame.pack_forget()
+        self._p2_frame.pack_forget()
         if n == 1:
-            self._p2_frame.pack_forget()
             self._p1_frame.pack(fill="x")
             self._setup_btn.config(state="disabled", fg=BG2, activeforeground=BG2)
-        else:
-            self._p1_frame.pack_forget()
+        elif n == 2:
+            self._p1a_frame.pack(fill="x")
+            self._setup_btn.config(state="normal", fg=YELLOW, activeforeground=YELLOW)
+        else:  # n == 3
             self._p2_frame.pack(fill="x")
             self._setup_btn.config(state="normal", fg=YELLOW, activeforeground=YELLOW)
         self.root.after(50, self._fit_window)
@@ -2402,7 +2577,7 @@ class SOCUltralight:
         self._auto_locate_windows()
         self.root.after(200, self._check_phase1_complete)
         self.root.after(300, lambda: self._show_phase(
-            2 if self._phase1_complete() else 1))
+            3 if self._phase1_complete() else 1))
 
     def _auto_locate_windows(self):
         """Find agent windows by matching saved title strings against open windows."""
