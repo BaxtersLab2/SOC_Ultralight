@@ -580,11 +580,18 @@ class SOCUltralight:
 
         tk.Frame(p, bg=BG, height=4).pack()
         self._launch_btn = tk.Button(
-            p, text="→ Launch Workflow  (0/6 ready)",
+            p, text="→ Plan Project  (0/6 ready)",
             command=lambda: self._show_phase(2),   # → Phase 1a (project priming)
             bg=BG2, fg="#666666", font=("Segoe UI", 10, "bold"),
             relief="flat", cursor="hand2", pady=6, state="disabled")
-        self._launch_btn.pack(fill="x", padx=12, pady=(0, 8))
+        self._launch_btn.pack(fill="x", padx=12, pady=(0, 2))
+
+        self._jumpin_btn = tk.Button(
+            p, text="⚡ Jump In  (calibrate first)",
+            command=lambda: self._show_phase(3),   # → Phase 2 directly, no Phase 1a
+            bg=BG2, fg="#666666", font=("Segoe UI", 9),
+            relief="flat", cursor="hand2", pady=4, state="disabled")
+        self._jumpin_btn.pack(fill="x", padx=12, pady=(0, 8))
 
     def _build_phase1a_ui(self):
         p = self._p1a_frame
@@ -1126,23 +1133,35 @@ class SOCUltralight:
             if cfg.hwnd:     count += 1
             if cfg.input_xy: count += 1
             if cfg.send_xy:  count += 1
-        cal_done   = count >= total
+        cal_done    = count >= total
         attend_done = all(self._attendance.get(aid, False) for aid in required)
         self._p1_progress_var.set(f"SETUP — {count}/{total} required")
+
+        # Jump In: calibration only — no roll call needed for returning users
+        if cal_done:
+            self._jumpin_btn.config(
+                text="⚡ Jump In  →  Phase 2 (no priming)", state="normal",
+                bg=BG2, fg=YELLOW, activebackground=BG2)
+        else:
+            self._jumpin_btn.config(
+                text=f"⚡ Jump In  (calibrate first — {count}/{total})", state="disabled",
+                bg=BG2, fg="#666666")
+
+        # Plan Project: requires calibration + roll call
         if cal_done and attend_done:
             self._p1_progress_lbl.config(fg=GREEN)
             self._launch_btn.config(
-                text="→ Launch Workflow ▶", state="normal",
+                text="→ Plan Project ▶", state="normal",
                 bg=GREEN, fg="#1e1e1e", activebackground="#3aaf7a")
         elif cal_done:
             self._p1_progress_lbl.config(fg=GREEN)
             self._launch_btn.config(
-                text="→ Roll call required to launch", state="disabled",
+                text="→ Plan Project  (roll call first)", state="disabled",
                 bg=BG2, fg=ORANGE)
         else:
             self._p1_progress_lbl.config(fg=ORANGE)
             self._launch_btn.config(
-                text=f"→ Launch Workflow  ({count}/{total} ready)", state="disabled",
+                text=f"→ Plan Project  ({count}/{total} ready)", state="disabled",
                 bg=BG2, fg="#666666")
 
     def _roll_call(self):
