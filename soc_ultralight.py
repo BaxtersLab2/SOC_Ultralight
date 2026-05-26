@@ -944,6 +944,15 @@ class SOCUltralight:
             relief="flat", cursor="hand2", padx=6, pady=4
         ).pack(side="right")
 
+        coach_row = tk.Frame(p, bg=BG, pady=1)
+        coach_row.pack(fill="x", padx=12)
+        tk.Button(
+            coach_row, text="⟳ Coach A1 — Module Block Reminder",
+            command=self._send_coaching_message,
+            bg=BG2, fg=YELLOW, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=8, pady=2
+        ).pack(side="left")
+
         ctrl1 = tk.Frame(p, bg=BG, pady=2)
         ctrl1.pack(fill="x", padx=12)
         self.ocr_btn = tk.Button(
@@ -2415,6 +2424,27 @@ class SOCUltralight:
             short = "A1" if aid == "agent1" else "A2"
             btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG, activebackground=BG2)
         self._log("[hold] holds auto-released — back in sequence")
+
+    def _send_coaching_message(self):
+        """Inject a module/block structure reminder to Agent 1.
+        Uses 'execute' instead of 'implement' to avoid triggering implementation mode."""
+        project = self._project_name_var.get().strip()
+        project_line = f"Active project: {project}\n\n" if project else ""
+        msg = (
+            f"[SOC COACHING — MODULE BLOCK REMINDER]\n"
+            f"{project_line}"
+            "Modules are lettered crates (A, B, C...). Each module contains numbered blocks.\n"
+            "Blocks are self-contained chunks that Agent 2 will write and save in order.\n"
+            "When all blocks are delivered and authorized, Agent 2 will execute the saved "
+            "blocks in alphanumeric sequence.\n\n"
+            "Deliver one block at a time via the relay format:\n"
+            "To Agent2\n[block content]\nend message now\n\n"
+            "Wait for Agent 2's confirmation before sending the next block."
+        )
+        threading.Thread(
+            target=lambda: self._inject_to_agent("agent1", msg),
+            daemon=True).start()
+        self._log("[coach] module block reminder sent to Agent 1")
 
     def _welfare_check(self):
         """Send a compact re-sync prompt directly to both agents so they can self-locate
