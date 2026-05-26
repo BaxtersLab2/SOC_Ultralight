@@ -368,6 +368,8 @@ class SOCUltralight:
         self._welfare_fired:     bool  = False          # True after auto-welfare fires; reset on next successful route
         self._region_frame:      dict[str, str]   = {} # agent_id → pixel-hash of last captured frame
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
+        self._last_ocr_text:     dict[str, str]   = {} # agent_id → md5 of last OCR text processed
+        self._inject_grace:      dict[str, float] = {} # agent_id → epoch until OCR routing suppressed
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
         self._bypass_agent3:     bool = True   # when True, agent3 is ignored entirely
         self._attendance:        dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
@@ -1151,8 +1153,10 @@ class SOCUltralight:
             for aid in targets:
                 n = nums[aid]
                 msg = (
-                    f"[SOC CHANNEL CHECK]\n"
-                    f"Output the following confirmation code verbatim — no other text:\n"
+                    f"[SOC CHANNEL CHECK — DO NOT SAVE ANYTHING]\n"
+                    f"This is a connectivity ping only. Do not create files, "
+                    f"save blocks, or take any action.\n"
+                    f"Output the following code verbatim — no other text:\n"
                     f"SOC-ACK-{n}"
                 )
                 self._inject_to_agent(aid, msg)
@@ -2455,12 +2459,11 @@ class SOCUltralight:
                                    activebackground="#c04040")
             self._log("[pause] ⏸ workflow paused — coach your agents, then click ▶ Resume")
         else:
-            self._last_routed_body.clear()
             self._welfare_fired   = False
             self._last_route_time = time.time()
             self._pause_btn.config(text="⏸ Pause", bg=BG2, fg=FG,
                                    activebackground=BG2)
-            self._log("[pause] ▶ workflow resumed — body-match cleared, routing live")
+            self._log("[pause] ▶ workflow resumed — routing live")
 
     def _reset_hold_buttons(self):
         """Reset all manual hold buttons to idle state after auto-release."""
@@ -2677,6 +2680,20 @@ class SOCUltralight:
                 self._region_last_change[aid] = time.time()
 
             text = pytesseract.image_to_string(_prepare_img_for_ocr(img), config="--psm 6")
+
+            # Text-hash dedup: if OCR text unchanged since last tick, skip processing.
+            # This stops stale relay messages (still visible in chat scroll) from being
+            # re-routed every scan cycle. Body-match dedup is the second-layer backstop.
+            text_h = hashlib.md5(text.encode()).hexdigest()
+            if text_h == self._last_ocr_text.get(aid):
+                continue
+            self._last_ocr_text[aid] = text_h
+
+            # Inject grace: suppress routing for a window after SOC sends the SOP to an
+            # agent — prevents the SOP example relay lines from firing as live messages.
+            if time.time() < self._inject_grace.get(aid, 0):
+                continue
+
             low  = text.lower()
             has_trigger  = bool(TRIGGER_RE.search(text))
             has_sentinel = any(v in low for v in _SENTINEL_VARIANTS)
@@ -3505,12 +3522,13 @@ class SOCUltralight:
         if not self.agents["agent1"].hwnd:
             self._set_status("Agent 1 window not set — click Set Win after focusing it")
             return
+        self._inject_grace["agent1"] = time.time() + 25
         threading.Thread(
             target=self._inject_to_agent,
             args=("agent1", AGENT1_SOP),
             kwargs={"bypass_mode_check": True},
             daemon=True).start()
-        self._log("[mode] Agent1 SOP sent")
+        self._log("[mode] Agent1 SOP sent — 25s OCR grace active")
         self._set_status("Agent1 SOP sent")
 
     def _start_agent2(self):
@@ -3518,12 +3536,13 @@ class SOCUltralight:
         if not self.agents["agent2"].hwnd:
             self._set_status("Agent 2 window not set — click Set Win after focusing it")
             return
+        self._inject_grace["agent2"] = time.time() + 25
         threading.Thread(
             target=self._inject_to_agent,
             args=("agent2", AGENT2_SOP),
             kwargs={"bypass_mode_check": True},
             daemon=True).start()
-        self._log("[mode] Agent2 SOP sent")
+        self._log("[mode] Agent2 SOP sent — 25s OCR grace active")
         self._set_status("Agent2 SOP sent")
 
     def _log_scroll_top(self):
