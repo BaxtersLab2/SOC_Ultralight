@@ -1651,8 +1651,9 @@ class SOCUltralight:
                 self._log(f"[ocr] directional skip — '{agent_id}' seen in its own window")
                 return False
 
-            # Manual per-agent hold: user-controlled pause button.
-            if self._manual_hold.get(agent_id):
+            # Manual per-agent hold: blocks routing FROM the held agent's window.
+            # Hold A1 = pause agent1's outgoing messages (source_agent="agent1" blocked).
+            if source_agent and self._manual_hold.get(source_agent):
                 return False
 
             if self._waiting_reply == agent_id:
@@ -1871,7 +1872,7 @@ class SOCUltralight:
         if held:
             btn.config(text=f"▶ Resume {short}", bg=RED, fg="white",
                        activebackground="#c04040")
-            self._log(f"[hold] {agent_id} paused — routing to {agent_id} blocked; auto-releases after next send")
+            self._log(f"[hold] {agent_id} paused — outgoing messages from {agent_id} blocked; auto-releases after next send")
         else:
             btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG,
                        activebackground=BG2)
