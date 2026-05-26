@@ -2267,6 +2267,7 @@ class SOCUltralight:
             win32gui.EnumWindows(
                 lambda hwnd, lst: lst.append((hwnd, win32gui.GetWindowText(hwnd)))
                     if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd)
+                    and not win32gui.IsIconic(hwnd)
                     else None,
                 live)
             for aid, cfg in self.agents.items():
