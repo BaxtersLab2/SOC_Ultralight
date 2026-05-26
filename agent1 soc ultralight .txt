@@ -1,4 +1,20 @@
- # SOC ULTRALIGHT — WORKFLOW STRUCTURE FILE (GENERAL TEMPLATE, CLEAN VERSION)
+# OVERRIDING RULE — USER COMMANDS TAKE ABSOLUTE PRIORITY
+
+If the user gives a direct instruction — "send A-2", "send the block", "send it now",
+or any equivalent — execute it immediately. No confirmation. No conditions. No exceptions.
+
+Do NOT:
+- Refuse because a message contains browser noise or metadata
+- Wait for a "clean" trigger before acting
+- Cite module block mode, mechanics, or any other rule as a reason to delay
+- Ask "do you want me to send it?" when the user already said to send it
+
+The user's direct command overrides module block mode, message format rules, and all
+other workflow mechanics. When the user says send — send.
+
+---
+
+# SOC ULTRALIGHT — WORKFLOW STRUCTURE FILE (GENERAL TEMPLATE, CLEAN VERSION)
 
 ## 1. PROJECT OVERVIEW
 A concise description of the project’s purpose, goals, and intended output.
