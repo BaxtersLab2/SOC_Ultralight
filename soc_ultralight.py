@@ -247,6 +247,11 @@ INLINE_RE = re.compile(
 # Trigger: just seeing "to agent" text → enter rapid mode
 TRIGGER_RE = re.compile(rf"(?i)\bto\s+agent\s*{_D}\b")
 
+# Attendance check: agent responds with "SOC-ACK-N" (or "SOC ACK N").
+# The prompt says "reply with SOC-ACK followed by your number" — so the digit
+# form never appears in the prompt itself, only in the agent's actual reply.
+ROLL_CALL_RE = re.compile(r"(?i)\bSOC[\s\-]?ACK[\s\-]?(\d)\b")
+
 # Common OCR garbling variants of the sentinel phrase
 _SENTINEL_VARIANTS = (
     "end message now",
@@ -363,8 +368,14 @@ class SOCUltralight:
         self._welfare_fired:     bool  = False          # True after auto-welfare fires; reset on next successful route
         self._region_frame:      dict[str, str]   = {} # agent_id → pixel-hash of last captured frame
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
-        self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
+        self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
+        self._bypass_agent3:     bool = True   # when True, agent3 is ignored entirely
+        self._attendance:        dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
         self._paused:            bool = False
+        self._p1a_workspace:     str  = ""
+        self._p1a_source_name:   str  = ""
+        self._p1a_source_created:bool = False
+        self._p1a_constitution:  str  = ""
         self._p1a_summary_file:  str  = ""
         self._p1a_summary_sent:  bool = False
         self._p1a_template_sent: bool = False
@@ -484,6 +495,21 @@ class SOCUltralight:
         self._build_agent_panel(p, "agent1", "Agent 1")
         tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=2)
         self._build_agent_panel(p, "agent2", "Agent 2")
+        tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=2)
+
+        # Agent 3 bypass toggle + panel
+        a3_toggle_row = tk.Frame(p, bg=BG, pady=2)
+        a3_toggle_row.pack(fill="x", padx=12)
+        self._a3_bypass_btn = tk.Button(
+            a3_toggle_row, text="⊘ Agent 3  [bypassed]",
+            command=self._toggle_bypass_agent3,
+            bg=BG2, fg="#666666", font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=8, pady=2)
+        self._a3_bypass_btn.pack(side="left")
+
+        self._a3_panel_frame = tk.Frame(p, bg=BG)
+        # Agent 3 panel starts hidden (bypass on by default)
+        self._build_agent_panel(self._a3_panel_frame, "agent3", "Agent 3")
         tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=4)
 
         cal_row = tk.Frame(p, bg=BG, pady=2)
@@ -513,7 +539,30 @@ class SOCUltralight:
             relief="flat", cursor="hand2", padx=8, pady=4
         ).pack(side="left", padx=(4, 0))
 
-        tk.Frame(p, bg=BG, height=6).pack()
+        tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=4)
+
+        # Roll call row — attendance check before launch
+        rc_row = tk.Frame(p, bg=BG, pady=2)
+        rc_row.pack(fill="x", padx=12)
+        tk.Button(
+            rc_row, text="⬡ Roll Call", command=self._roll_call,
+            bg=BG2, fg=YELLOW, font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=4
+        ).pack(side="left")
+
+        self._attendance_lbls: dict[str, tk.Label] = {}
+        for _aid, _short in [("agent1", "A1"), ("agent2", "A2"), ("agent3", "A3")]:
+            lbl = tk.Label(rc_row, text=f"{_short}:○", bg=BG, fg="#666666",
+                           font=("Segoe UI", 8, "bold"))
+            lbl.pack(side="left", padx=(8, 0))
+            self._attendance_lbls[_aid] = lbl
+
+        self._attendance_status_lbl = tk.Label(
+            p, text="Roll call required before launch",
+            bg=BG, fg="#666666", font=("Segoe UI", 7, "italic"), anchor="w")
+        self._attendance_status_lbl.pack(fill="x", padx=12, pady=(2, 0))
+
+        tk.Frame(p, bg=BG, height=4).pack()
         self._launch_btn = tk.Button(
             p, text="→ Launch Workflow  (0/6 ready)",
             command=lambda: self._show_phase(2),   # → Phase 1a (project priming)
@@ -534,10 +583,70 @@ class SOCUltralight:
 
         tk.Frame(p, bg=BG, height=4).pack()
 
-        # ── Summary section ──────────────────────────────────────────
-        tk.Label(p, text="1. Load project summary into Agent 1",
+        # ── Step 1: Workspace ─────────────────────────────────────────
+        tk.Label(p, text="1. Set project workspace",
                  bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
                  anchor="w").pack(fill="x", padx=12, pady=(4, 2))
+
+        ws_row = tk.Frame(p, bg=BG)
+        ws_row.pack(fill="x", padx=12)
+        tk.Button(ws_row, text="Browse…", command=self._p1a_browse_workspace,
+                  bg=BG2, fg=FG, font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=8, pady=2
+                  ).pack(side="left")
+        self._p1a_ws_lbl = tk.Label(ws_row, text="No workspace selected",
+                 bg=BG, fg="#666666", font=("Segoe UI", 7),
+                 anchor="w", wraplength=160)
+        self._p1a_ws_lbl.pack(side="left", padx=(6, 0), fill="x", expand=True)
+
+        src_row = tk.Frame(p, bg=BG)
+        src_row.pack(fill="x", padx=12, pady=(4, 0))
+        tk.Label(src_row, text="Source folder:", bg=BG, fg=FG,
+                 font=("Segoe UI", 8)).pack(side="left")
+        self._p1a_src_var = tk.StringVar()
+        tk.Entry(src_row, textvariable=self._p1a_src_var, width=14,
+                 bg="#2d2d2d", fg=FG, insertbackground=FG,
+                 relief="flat", font=("Segoe UI", 8)).pack(side="left", padx=(4, 4))
+        self._p1a_src_btn = tk.Button(src_row, text="Create",
+                  command=self._p1a_create_source,
+                  bg=BG2, fg="#666666", font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=6, pady=1, state="disabled")
+        self._p1a_src_btn.pack(side="left")
+        self._p1a_src_status = tk.Label(src_row, text="", bg=BG,
+                 fg=GREEN, font=("Segoe UI", 8))
+        self._p1a_src_status.pack(side="left", padx=(4, 0))
+
+        tk.Frame(p, bg="#333333", height=1).pack(fill="x", padx=12, pady=6)
+
+        # ── Step 2: Constitution ──────────────────────────────────────
+        tk.Label(p, text="2. Constitution folder (agent rules & constraints)",
+                 bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
+                 anchor="w").pack(fill="x", padx=12, pady=(0, 2))
+
+        con_row = tk.Frame(p, bg=BG)
+        con_row.pack(fill="x", padx=12)
+        tk.Button(con_row, text="Browse existing…",
+                  command=self._p1a_browse_constitution,
+                  bg=BG2, fg=FG, font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=8, pady=2
+                  ).pack(side="left", padx=(0, 4))
+        tk.Button(con_row, text="Use SOC template",
+                  command=self._p1a_copy_constitution_template,
+                  bg=BG2, fg=ACCENT, font=("Segoe UI", 8),
+                  relief="flat", cursor="hand2", padx=8, pady=2
+                  ).pack(side="left")
+
+        self._p1a_con_lbl = tk.Label(p, text="No constitution folder set",
+                 bg=BG, fg="#666666", font=("Segoe UI", 7),
+                 anchor="w", wraplength=230)
+        self._p1a_con_lbl.pack(fill="x", padx=12, pady=(2, 0))
+
+        tk.Frame(p, bg="#333333", height=1).pack(fill="x", padx=12, pady=6)
+
+        # ── Step 3: Project summary ───────────────────────────────────
+        tk.Label(p, text="3. Load project summary into Agent 1",
+                 bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
+                 anchor="w").pack(fill="x", padx=12, pady=(0, 2))
 
         sum_row = tk.Frame(p, bg=BG)
         sum_row.pack(fill="x", padx=12)
@@ -571,8 +680,8 @@ class SOCUltralight:
 
         tk.Frame(p, bg="#333333", height=1).pack(fill="x", padx=12, pady=6)
 
-        # ── Template section ─────────────────────────────────────────
-        tk.Label(p, text="2. Send module block template to Agent 1",
+        # ── Step 4: Template ──────────────────────────────────────────
+        tk.Label(p, text="4. Send module block template to agents",
                  bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
                  anchor="w").pack(fill="x", padx=12, pady=(0, 2))
 
@@ -591,6 +700,67 @@ class SOCUltralight:
             bg=BG2, fg="#666666", font=("Segoe UI", 10, "bold"),
             relief="flat", cursor="hand2", pady=6, state="disabled")
         self._p1a_advance_btn.pack(fill="x", padx=12, pady=(0, 8))
+
+    def _p1a_browse_workspace(self):
+        import tkinter.filedialog as fd
+        path = fd.askdirectory(title="Select project workspace folder")
+        if not path:
+            return
+        self._p1a_workspace = path
+        short = os.path.basename(path) or path
+        self._p1a_ws_lbl.config(text=short, fg=FG)
+        self._p1a_src_btn.config(state="normal", fg=FG)
+        self._log(f"[priming] workspace set: {path}")
+        self._p1a_check_advance()
+
+    def _p1a_create_source(self):
+        name = self._p1a_src_var.get().strip()
+        if not name:
+            self._log("[priming] enter a source folder name first")
+            return
+        if not self._p1a_workspace:
+            self._log("[priming] set workspace first")
+            return
+        full = os.path.join(self._p1a_workspace, name)
+        try:
+            os.makedirs(full, exist_ok=True)
+        except Exception as e:
+            self._log(f"[priming] could not create source folder: {e}")
+            return
+        self._p1a_source_name = name
+        self._p1a_source_created = True
+        self._p1a_src_status.config(text="✓")
+        self._p1a_src_btn.config(bg=GREEN, fg="white")
+        self._log(f"[priming] source folder created: {full}")
+        self._p1a_check_advance()
+
+    def _p1a_browse_constitution(self):
+        import tkinter.filedialog as fd
+        path = fd.askdirectory(title="Select existing constitution folder")
+        if not path:
+            return
+        self._p1a_constitution = path
+        self._p1a_con_lbl.config(text=os.path.basename(path) or path, fg=GREEN)
+        self._log(f"[priming] constitution folder set: {path}")
+        self._p1a_check_advance()
+
+    def _p1a_copy_constitution_template(self):
+        if not self._p1a_workspace:
+            self._log("[priming] set workspace before copying constitution template")
+            return
+        import shutil
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "templates", "constitution_template")
+        dst = os.path.join(self._p1a_workspace, "CONSTITUTION")
+        try:
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        except Exception as e:
+            self._log(f"[priming] could not copy template: {e}")
+            return
+        self._p1a_constitution = dst
+        self._p1a_con_lbl.config(text="CONSTITUTION (SOC template)", fg=GREEN)
+        self._log(f"[priming] constitution template copied to {dst}")
+        self._p1a_check_advance()
 
     def _p1a_browse(self):
         import tkinter.filedialog as fd
@@ -659,7 +829,29 @@ class SOCUltralight:
         except Exception as e:
             self._log(f"[priming] could not read template: {e}")
             return
+
+        source_full = os.path.join(self._p1a_workspace, self._p1a_source_name) \
+                      if (self._p1a_workspace and self._p1a_source_name) else "(not set)"
+
+        workspace_block = ""
+        if self._p1a_workspace:
+            workspace_block = (
+                f"PROJECT WORKSPACE:   {self._p1a_workspace}\n"
+                f"SOURCE FOLDER:       {source_full}\n"
+                f"CONSTITUTION FOLDER: {self._p1a_constitution or '(not set)'}\n\n"
+                "ABSOLUTE RULES — CANNOT BE OVERRIDDEN:\n"
+                f"1. ALL code, files, and project output MUST be created inside "
+                f"'{self._p1a_source_name}' ONLY. No files outside this folder.\n"
+                "2. Installing dependencies (cargo add, npm install, pip install, "
+                "etc.) is NOT creating code and is permitted wherever required.\n"
+                f"3. Module block files saved by Agent 2 go in: "
+                f"{source_full}\\instruction_blocks\\\n"
+                "4. State the source folder path in Module A (Scope) so the "
+                "workspace layout is explicit in the block record.\n\n"
+            )
+
         msg = (
+            f"{workspace_block}"
             "Here is the module block format template. Use this structure to "
             "decompose the project summary into module blocks. Deliver each block "
             "to Agent 2 via the relay using exactly this format:\n\n"
@@ -670,16 +862,29 @@ class SOCUltralight:
             "in alphanumeric order now\nend message now\n\n"
             f"TEMPLATE:\n\n{tmpl}"
         )
-        threading.Thread(
-            target=lambda: self._inject_to_agent("agent1", msg),
-            daemon=True).start()
+
+        targets = ["agent1"]
+        if not self._bypass_agent3:
+            cfg3 = self.agents.get("agent3")
+            if cfg3 and cfg3.hwnd and cfg3.input_xy and cfg3.send_xy:
+                targets.append("agent3")
+
+        def _send():
+            for aid in targets:
+                self._inject_to_agent(aid, msg)
+        threading.Thread(target=_send, daemon=True).start()
+
         self._p1a_template_sent = True
-        self._p1a_tmpl_btn.config(bg=GREEN, fg="white", text="✓ Template Sent")
-        self._log("[priming] module block template sent to Agent 1")
+        label = "✓ Template Sent" + (" (A1 + A3)" if len(targets) > 1 else "")
+        self._p1a_tmpl_btn.config(bg=GREEN, fg="white", text=label)
+        self._log(f"[priming] module block template sent to {targets}")
         self._p1a_check_advance()
 
     def _p1a_check_advance(self):
-        if self._p1a_summary_sent and self._p1a_template_sent:
+        setup_ok = (self._p1a_workspace and self._p1a_source_created
+                    and self._p1a_constitution)
+        all_ok   = setup_ok and self._p1a_summary_sent and self._p1a_template_sent
+        if all_ok:
             self._p1a_advance_btn.config(state="normal", fg=FG, bg=ACCENT,
                                          activebackground=ACCENT)
         else:
@@ -748,13 +953,15 @@ class SOCUltralight:
         hold_row = tk.Frame(p, bg=BG, pady=1)
         hold_row.pack(fill="x", padx=12)
         self._hold_btns: dict[str, tk.Button] = {}
-        for _aid, _short in [("agent1", "A1"), ("agent2", "A2")]:
+        for _aid, _short in [("agent1", "A1"), ("agent2", "A2"), ("agent3", "A3")]:
             _btn = tk.Button(
                 hold_row, text=f"⏸ Hold {_short}",
                 command=lambda a=_aid: self._toggle_manual_hold(a),
                 bg=BG2, fg=FG, font=("Segoe UI", 8),
                 relief="flat", cursor="hand2", padx=8, pady=2)
-            _btn.pack(side="left", padx=(0, 4))
+            # Hold A3 is only shown when agent3 is active
+            if _aid != "agent3":
+                _btn.pack(side="left", padx=(0, 4))
             self._hold_btns[_aid] = _btn
         self._pause_btn = tk.Button(
             hold_row, text="⏸ Pause",
@@ -850,32 +1057,107 @@ class SOCUltralight:
         self.root.after(50, self._fit_window)
 
     def _phase1_complete(self) -> bool:
-        for aid in ("agent1", "agent2"):
+        required = ["agent1", "agent2"] if self._bypass_agent3 else ["agent1", "agent2", "agent3"]
+        for aid in required:
             cfg = self.agents[aid]
             if not (cfg.hwnd and cfg.input_xy and cfg.send_xy):
                 return False
-        return True
+        return all(self._attendance.get(aid, False) for aid in required)
 
     def _check_phase1_complete(self):
         if not hasattr(self, "_launch_btn"):
             return
+        required = ["agent1", "agent2"] if self._bypass_agent3 else ["agent1", "agent2", "agent3"]
+        total = len(required) * 3
         count = 0
-        for aid in ("agent1", "agent2"):
+        for aid in required:
             cfg = self.agents[aid]
             if cfg.hwnd:     count += 1
             if cfg.input_xy: count += 1
             if cfg.send_xy:  count += 1
-        self._p1_progress_var.set(f"SETUP — {count}/6 required")
-        if count >= 6:
+        cal_done   = count >= total
+        attend_done = all(self._attendance.get(aid, False) for aid in required)
+        self._p1_progress_var.set(f"SETUP — {count}/{total} required")
+        if cal_done and attend_done:
             self._p1_progress_lbl.config(fg=GREEN)
             self._launch_btn.config(
                 text="→ Launch Workflow ▶", state="normal",
                 bg=GREEN, fg="#1e1e1e", activebackground="#3aaf7a")
+        elif cal_done:
+            self._p1_progress_lbl.config(fg=GREEN)
+            self._launch_btn.config(
+                text="→ Roll call required to launch", state="disabled",
+                bg=BG2, fg=ORANGE)
         else:
             self._p1_progress_lbl.config(fg=ORANGE)
             self._launch_btn.config(
-                text=f"→ Launch Workflow  ({count}/6 ready)", state="disabled",
+                text=f"→ Launch Workflow  ({count}/{total} ready)", state="disabled",
                 bg=BG2, fg="#666666")
+
+    def _roll_call(self):
+        """Send an attendance prompt to each active, configured agent.
+        Resets all attendance flags first so stale confirmations don't carry over."""
+        required = ["agent1", "agent2"] if self._bypass_agent3 else ["agent1", "agent2", "agent3"]
+        # Reset flags and update dots
+        for aid in ("agent1", "agent2", "agent3"):
+            self._attendance[aid] = False
+        self._update_attendance_ui()
+        # Only send to agents that are fully configured
+        targets = [aid for aid in required
+                   if self.agents[aid].hwnd and self.agents[aid].input_xy
+                   and self.agents[aid].send_xy]
+        if not targets:
+            self._log("[roll call] no agents configured — complete Set Win + Cal first")
+            return
+        self._log(f"[roll call] sending attendance check to {targets}")
+        nums = {"agent1": "1", "agent2": "2", "agent3": "3"}
+        def _send_all():
+            for aid in targets:
+                n = nums[aid]
+                msg = (
+                    f"[SOC ROLL CALL] You are Agent {n}.\n"
+                    f"Confirm you are ready by replying with:\n"
+                    f"SOC-ACK followed by your agent number\n"
+                    f"Example format: SOC-ACK-{n}\n"
+                    f"Reply with only that code and nothing else."
+                )
+                self._inject_to_agent(aid, msg)
+        threading.Thread(target=_send_all, daemon=True).start()
+
+    def _mark_attendance(self, aid: str):
+        """Record that aid has confirmed presence and refresh UI + phase check."""
+        if self._attendance.get(aid):
+            return   # already confirmed, ignore duplicate
+        self._attendance[aid] = True
+        self._log(f"[roll call] ✓ {aid} confirmed present (SOC-ACK detected)")
+        self.root.after(0, self._update_attendance_ui)
+        self.root.after(0, self._check_phase1_complete)
+
+    def _update_attendance_ui(self):
+        """Refresh per-agent dot labels and overall attendance status label."""
+        if not hasattr(self, "_attendance_lbls"):
+            return
+        required = ["agent1", "agent2"] if self._bypass_agent3 else ["agent1", "agent2", "agent3"]
+        names = {"agent1": "A1", "agent2": "A2", "agent3": "A3"}
+        for aid, lbl in self._attendance_lbls.items():
+            present = self._attendance.get(aid, False)
+            # Show A3 dot dimmed when bypassed
+            if aid == "agent3" and self._bypass_agent3:
+                lbl.config(text=f"{names[aid]}:—", fg="#444444")
+            elif present:
+                lbl.config(text=f"{names[aid]}:✓", fg=GREEN)
+            else:
+                lbl.config(text=f"{names[aid]}:○", fg="#666666")
+        all_present = all(self._attendance.get(a, False) for a in required)
+        if all_present:
+            n = len(required)
+            self._attendance_status_lbl.config(
+                text=f"✓ All {n} agents confirmed — ready to launch", fg=GREEN)
+        else:
+            confirmed = sum(1 for a in required if self._attendance.get(a, False))
+            self._attendance_status_lbl.config(
+                text=f"Attendance: {confirmed}/{len(required)} confirmed",
+                fg=ORANGE if confirmed > 0 else "#666666")
 
     def _test_inject(self):
         targets = []
@@ -1837,6 +2119,10 @@ class SOCUltralight:
             if self._paused:
                 return False
 
+            # Agent 3 bypass: when active, ignore all traffic to/from agent3.
+            if self._bypass_agent3 and (agent_id == "agent3" or source_agent == "agent3"):
+                return False
+
             # Manual per-agent hold: blocks routing FROM the held agent's window.
             # Hold A1 = pause agent1's outgoing messages (source_agent="agent1" blocked).
             if source_agent and self._manual_hold.get(source_agent):
@@ -2067,6 +2353,29 @@ class SOCUltralight:
                        activebackground=BG2)
             self._log(f"[hold] {agent_id} resumed")
 
+    def _toggle_bypass_agent3(self):
+        """Toggle Agent 3 bypass. When bypassed, agent3 OCR region is not scanned and
+        no traffic is routed to or from agent3. Shows/hides the agent3 panel and
+        Hold A3 button accordingly."""
+        self._bypass_agent3 = not self._bypass_agent3
+        if self._bypass_agent3:
+            self._a3_bypass_btn.config(text="⊘ Agent 3  [bypassed]", fg="#666666")
+            self._a3_panel_frame.pack_forget()
+            if "agent3" in self._hold_btns:
+                self._hold_btns["agent3"].pack_forget()
+            self._log("[agent3] bypassed — agent3 OCR and routing disabled")
+        else:
+            self._a3_bypass_btn.config(text="● Agent 3  [active]", fg=GREEN)
+            self._a3_panel_frame.pack(fill="x")
+            if "agent3" in self._hold_btns:
+                self._hold_btns["agent3"].pack(side="left", padx=(0, 4),
+                                               before=self._pause_btn)
+            self._log("[agent3] active — agent3 OCR and routing enabled")
+        self.root.after(0, self._update_attendance_ui)
+        self.root.after(0, self._check_phase1_complete)
+        self.root.after(50, self._fit_window)
+        self._save_config()
+
     def _toggle_pause(self):
         """Pause/resume all routing. While paused OCR keeps scanning but nothing injects.
         On resume, body-match guards are cleared so current window content routes fresh."""
@@ -2232,6 +2541,8 @@ class SOCUltralight:
             return
 
         for aid, cfg in configured:
+            if aid == "agent3" and self._bypass_agent3:
+                continue   # agent3 bypassed — skip its OCR region entirely
             rx0, ry0, rx1, ry1 = cfg.ocr_region
             # Use ImageGrab (GDI/BitBlt) instead of mss for per-window captures.
             # mss uses DXGI which cannot capture GPU-accelerated windows like VS Code.
@@ -2286,6 +2597,16 @@ class SOCUltralight:
         # Step 1: "to agent" spotted → enter rapid mode
         if TRIGGER_RE.search(text):
             self._rapid_until = time.time() + RAPID_DURATION
+
+        # Attendance check: look for SOC-ACK-N in the source agent's window.
+        # Only register if the ACK digit matches the window we're reading, so a
+        # stray reflection in another window can't false-confirm a different agent.
+        if source_agent:
+            for m in ROLL_CALL_RE.finditer(text):
+                digit    = _OCR_DIGIT_NORM.get(m.group(1), m.group(1))
+                ack_aid  = f"agent{digit}"
+                if ack_aid == source_agent and not self._attendance.get(ack_aid):
+                    self._mark_attendance(ack_aid)
 
         # Step 2: full sentinel present → extract and route
         if any(v in low for v in _SENTINEL_VARIANTS):
@@ -2520,7 +2841,8 @@ class SOCUltralight:
                 "prefix_text":    cfg.prefix_var.get()     if cfg.prefix_var    else "",
                 "ocr_region":     list(cfg.ocr_region) if cfg.ocr_region else None,
             }
-        data["project_name"] = self._project_name_var.get()
+        data["project_name"]   = self._project_name_var.get()
+        data["bypass_agent3"]  = self._bypass_agent3
         # Auto-click toggle states keyed by template stem
         data["autoclick"] = {
             stem: var.get() for stem, var in self._autoclick_vars.items()
@@ -2559,6 +2881,18 @@ class SOCUltralight:
                         text=f"region: {w}x{h}px ({x1},{y1})", fg=GREEN)
         if data.get("project_name"):
             self._project_name_var.set(data["project_name"])
+        # Restore agent3 bypass state (default True if not in config)
+        self._bypass_agent3 = data.get("bypass_agent3", True)
+        if hasattr(self, "_a3_bypass_btn"):
+            if self._bypass_agent3:
+                self._a3_bypass_btn.config(text="⊘ Agent 3  [bypassed]", fg="#666666")
+                self._a3_panel_frame.pack_forget()
+            else:
+                self._a3_bypass_btn.config(text="● Agent 3  [active]", fg=GREEN)
+                self._a3_panel_frame.pack(fill="x")
+                if "agent3" in self._hold_btns:
+                    self._hold_btns["agent3"].pack(side="left", padx=(0, 4),
+                                                   before=self._pause_btn)
         # Restore auto-click toggle states
         for stem, enabled in data.get("autoclick", {}).items():
             if stem in self._autoclick_vars:

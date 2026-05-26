@@ -1,0 +1,5 @@
+USER=[your name or handle]
+AGENT_1=[agent 1 name or alias]
+AGENT_2=[agent 2 name or alias]
+agent11=<unassigned>
+agent22=<unassigned>
