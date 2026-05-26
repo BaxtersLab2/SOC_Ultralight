@@ -355,6 +355,7 @@ class SOCUltralight:
         self._last_scroll:       dict[str, float] = {}   # agent_id → last auto-scroll time
         self._scroll_grace:      dict[str, float] = {}   # agent_id → keep scrolling until this time
         self._last_routed_body:  dict[str, str]  = {}   # agent_id → hash of last body routed to them
+        self._last_routed_text:  dict[str, str]  = {}   # agent_id → first line of last body (welfare check)
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
@@ -577,6 +578,12 @@ class SOCUltralight:
                 relief="flat", cursor="hand2", padx=8, pady=2)
             _btn.pack(side="left", padx=(0, 4))
             self._hold_btns[_aid] = _btn
+        tk.Button(
+            hold_row, text="⟳ Welfare",
+            command=self._welfare_check,
+            bg=BG2, fg=ORANGE, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=6, pady=2
+        ).pack(side="right")
 
         ctrl2 = tk.Frame(p, bg=BG, pady=2)
         ctrl2.pack(fill="x", padx=12)
@@ -1688,6 +1695,9 @@ class SOCUltralight:
                 return False
             self._inject_to_agent(agent_id, body)
 
+            # Store first line of body for welfare check context (block ID or reply preview).
+            self._last_routed_text[agent_id] = body.splitlines()[0][:120] if body else ""
+
             # Update body-match guard: record what we just sent.
             # When the destination replies (routes to the other agent), the other
             # agent's entry is cleared so its next outbound can go through.
@@ -1864,6 +1874,50 @@ class SOCUltralight:
             short = "A1" if aid == "agent1" else "A2"
             btn.config(text=f"⏸ Hold {short}", bg=BG2, fg=FG, activebackground=BG2)
         self._log("[hold] holds auto-released — back in sequence")
+
+    def _welfare_check(self):
+        """Send a compact re-sync prompt directly to both agents so they can self-locate
+        and fall back into sequence. Injected directly (bypasses OCR routing).
+        Only useful when the sequence has stalled — do not fire during normal operation."""
+        last_to_a2 = self._last_routed_text.get("agent2", "(none recorded)")
+        last_to_a1 = self._last_routed_text.get("agent1", "(none recorded)")
+
+        # Message to agent2 (Claude Code) — ask it to confirm its last block
+        msg_a2 = (
+            "[SOC WELFARE CHECK]\n"
+            f"Last block SOC sent you:  {last_to_a2}\n"
+            f"Last reply SOC got from you:  {last_to_a1}\n"
+            "If you have processed the block, resend your confirmation now:\n"
+            "To Agent1\nmodule block [X] saved, ready for next block\nend message now"
+        )
+
+        # Message to agent1 (Bing Copilot) — orient it and ask it to re-engage
+        msg_a1 = (
+            "[SOC WELFARE CHECK]\n"
+            f"Last block SOC received from you:  {last_to_a2}\n"
+            f"Last Agent2 confirmation SOC forwarded:  {last_to_a1}\n"
+            "Sequence stalled. Please verify your position and send the next block "
+            "or resend the last one if Agent2 has not confirmed it."
+        )
+
+        self._log(f"[welfare] sending re-sync to agent1 and agent2")
+        self._log(f"[welfare] last→agent2: {last_to_a2[:60]}")
+        self._log(f"[welfare] last→agent1: {last_to_a1[:60]}")
+
+        # Clear the dedup/body-match blocks so routing can resume after welfare reply
+        self._last_routed_body.clear()
+        if self._waiting_body_hash:
+            self._dedup_clear(self._waiting_body_hash)
+        self._waiting_reply     = None
+        self._waiting_since     = 0.0
+        self._waiting_body_hash = None
+        self.root.after(0, self._update_ocr_hold_label)
+
+        threading.Thread(
+            target=lambda: (
+                self._inject_to_agent("agent2", msg_a2),
+                self._inject_to_agent("agent1", msg_a1)),
+            daemon=True).start()
 
     def _toggle_ocr(self):
         if self._ocr_running:
