@@ -372,6 +372,7 @@ class SOCUltralight:
         self._bypass_agent3:     bool = True   # when True, agent3 is ignored entirely
         self._attendance:        dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
         self._paused:            bool = False
+        self._collapsed:         bool = False
         self._p1a_workspace:     str  = ""
         self._p1a_source_name:   str  = ""
         self._p1a_source_created:bool = False
@@ -417,15 +418,15 @@ class SOCUltralight:
         self.root.destroy()
 
     def _minimize(self):
-        """Minimize the window. overrideredirect blocks iconify, so we toggle it off first."""
-        def _on_restore(event):
-            if event.widget is self.root:
-                self.root.overrideredirect(True)
-                self.root.unbind("<Map>")
-        self.root.bind("<Map>", _on_restore)
-        self.root.overrideredirect(False)
-        self.root.update_idletasks()
-        self.root.iconify()
+        """Collapse the window to the title bar strip. Click again to restore."""
+        self._collapsed = not self._collapsed
+        if self._collapsed:
+            self._body.pack_forget()
+            self._min_btn.config(text="□")
+        else:
+            self._body.pack(fill="x")
+            self._min_btn.config(text="—")
+        self.root.after(50, self._fit_window)
 
     def _build_window(self):
         self.root.title("SOC Ultralight")
@@ -447,7 +448,9 @@ class SOCUltralight:
 
     def _build_ui(self):
         self._build_titlebar()
-        self._slide = tk.Frame(self.root, bg=BG)
+        self._body = tk.Frame(self.root, bg=BG)
+        self._body.pack(fill="x")
+        self._slide = tk.Frame(self._body, bg=BG)
         self._slide.pack(fill="x")
         self._p1_frame  = tk.Frame(self._slide, bg=BG)
         self._p1a_frame = tk.Frame(self._slide, bg=BG)
@@ -470,10 +473,11 @@ class SOCUltralight:
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 9, "bold"),
                   activebackground=RED, activeforeground="white",
                   cursor="hand2", bd=0, padx=8).pack(side="right")
-        tk.Button(tb, text="—", command=self._minimize,
+        self._min_btn = tk.Button(tb, text="—", command=self._minimize,
                   bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 9, "bold"),
                   activebackground=BG2, activeforeground="white",
-                  cursor="hand2", bd=0, padx=8).pack(side="right")
+                  cursor="hand2", bd=0, padx=8)
+        self._min_btn.pack(side="right")
         self._setup_btn = tk.Button(
             tb, text="← Setup", command=lambda: self._show_phase(1),
             bg=BG2, fg=BG2, relief="flat", font=("Segoe UI", 8),
@@ -1039,7 +1043,7 @@ class SOCUltralight:
 
     def _build_log_status(self):
         self._log_open = False
-        log_hdr = tk.Frame(self.root, bg=BG2)
+        log_hdr = tk.Frame(self._body, bg=BG2)
         log_hdr.pack(fill="x", padx=10, pady=(4, 0))
         self._log_toggle_btn = tk.Button(
             log_hdr, text="▶ Diagnostics", command=self._toggle_log,
@@ -1052,7 +1056,7 @@ class SOCUltralight:
             cursor="hand2", padx=6, bd=0).pack(side="right")
 
         self.log = scrolledtext.ScrolledText(
-            self.root, height=8, wrap="word",
+            self._body, height=8, wrap="word",
             bg=BG2, fg=FG, insertbackground=FG,
             font=("Consolas", 8), relief="flat",
             borderwidth=0, padx=6, pady=6)
@@ -1061,7 +1065,7 @@ class SOCUltralight:
 
         self.status_var = tk.StringVar(
             value="Click Set Win for each agent, then ⌖ Auto-Calibrate")
-        tk.Label(self.root, textvariable=self.status_var,
+        tk.Label(self._body, textvariable=self.status_var,
                  bg=BG, fg=ORANGE, font=("Segoe UI", 8, "italic"),
                  anchor="w", wraplength=234
                  ).pack(fill="x", padx=12, pady=(0, 4))
@@ -1147,11 +1151,9 @@ class SOCUltralight:
             for aid in targets:
                 n = nums[aid]
                 msg = (
-                    f"[SOC ROLL CALL] You are Agent {n}.\n"
-                    f"Confirm you are ready by replying with:\n"
-                    f"SOC-ACK followed by your agent number\n"
-                    f"Example format: SOC-ACK-{n}\n"
-                    f"Reply with only that code and nothing else."
+                    f"[SOC CHANNEL CHECK]\n"
+                    f"Output the following confirmation code verbatim — no other text:\n"
+                    f"SOC-ACK-{n}"
                 )
                 self._inject_to_agent(aid, msg)
         threading.Thread(target=_send_all, daemon=True).start()
@@ -3513,6 +3515,11 @@ def _acquire_instance_lock() -> bool:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # Hide any console window — covers python.exe launches and stray library consoles
+    _con = ctypes.windll.kernel32.GetConsoleWindow()
+    if _con:
+        ctypes.windll.user32.ShowWindow(_con, 0)
+
     if not _acquire_instance_lock():
         _r = tk.Tk()
         _r.withdraw()

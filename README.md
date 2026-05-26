@@ -422,6 +422,8 @@ SOC_Ultralight/
 ├── templates/                      Phase 1a project priming files
 │   ├── PROJECT_SUMMARY_TEMPLATE.md     Fill this in or load it via Browse in Phase 1a
 │   └── GENERAL_MODULE_BLOCK_TEMPLATE.md  Block format sent to Agent 1 by Phase 1a
+├── docs/
+│   └── images/                     Desktop layout screenshots (see Desktop Layout section)
 ├── buttons database/               PNG templates for auto-click and calibration
 │   └── registry.json               Template confidence training data
 ├── outbox/                         Drop .md files here for routing (git-ignored)
@@ -429,6 +431,33 @@ SOC_Ultralight/
 │   └── agent2/
 └── sent/                           Processed outbox files archived here (git-ignored)
 ```
+
+---
+
+## Desktop Layout
+
+SOC Ultralight shares your screen with up to three chat windows and a small folder explorer — arranging them correctly before starting saves a lot of pain. The images below show the recommended layout for each configuration.
+
+**Suggested filenames** (place your screenshots in `docs/images/`):
+
+| File | Contents |
+|---|---|
+| `desktop_layout_2agent.png` | 2-agent setup: Agent 1 + Agent 2 side by side, SOC widget, folder explorer showing `run.bat` |
+| `desktop_layout_3agent.png` | 3-agent setup: Agent 1, Agent 2, Agent 3 slim side by side, SOC widget, folder explorer |
+
+### 2-Agent Layout
+
+![2-Agent Desktop Layout](docs/images/desktop_layout_2agent.png)
+
+### 3-Agent Layout
+
+![3-Agent Desktop Layout](docs/images/desktop_layout_3agent.png)
+
+**Tips:**
+- Slim each chat window so all fit side by side — Agent 1 on the left, Agent 2 (and Agent 3) on the right
+- Open the folder explorer at the project workspace root so `run.bat` is visible and clickable
+- SOC Ultralight sits on top of everything (`overrideredirect` — always on top); dock it to a corner before calibrating
+- Run calibration (**Phase 1 → Cal A1 / Cal A2**) with each chat window in its final position — coordinates are saved and reused on restart
 
 ---
 
