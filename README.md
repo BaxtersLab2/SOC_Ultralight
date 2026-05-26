@@ -19,8 +19,10 @@ SOC Ultralight (Screen OCR Controller) sits in the corner of your screen and wat
 
 The primary use case is a two-agent module block workflow:
 
-- **Agent 1** (Bing Copilot in Edge) — Architect/Planner. Writes module instruction blocks and sends them one at a time to Agent 2.
+- **Agent 1** (Bing Copilot in Edge) — Architect/Planner. Designs the project, writes module instruction blocks, and sends them one at a time to Agent 2.
 - **Agent 2** (Claude Code in VS Code) — Implementer. Receives and stores each block, confirms receipt, then implements all blocks when authorized.
+
+SOC guides you through three phases: **Phase 1** (window calibration), **Phase 1a** (project priming with Agent 1), and **Phase 2** (automated routing).
 
 ---
 
@@ -104,6 +106,50 @@ After Cal, you can check the captured coordinates shown under each agent. If a c
 
 ---
 
+## Phase 1a — Project Priming
+
+After calibration is complete, clicking **→ Launch Workflow** opens the Project Priming slide. This is where you define the project before any module blocks are written. Phase 2 (automated routing) does not start until you click **→ Begin Workflow** at the bottom of this slide.
+
+### Option A — Brainstorm from scratch
+
+Click **▶ Brainstorm**.
+
+SOC injects a starter prompt into Agent 1 asking it to help you design the project. You describe what you want to build in the Copilot window. Agent 1 asks clarifying questions, refines the scope, and produces a complete project summary when you are satisfied.
+
+### Option B — Load an existing summary
+
+Click **Browse…** and select a `.md` or `.txt` file containing your project summary.
+
+Click **→ Inject Summary into Agent 1**.
+
+SOC reads the file and sends it to Agent 1 with framing that asks Agent 1 to confirm the scope and flag any loose ends before proceeding.
+
+### Mark the summary ready
+
+Once Agent 1 has a complete project summary (whether from brainstorm or file), click **✓ Summary Ready**. The button turns green and the template step unlocks.
+
+### Send the module block template
+
+Click **→ Send Template to Agent 1**.
+
+SOC reads `templates/GENERAL_MODULE_BLOCK_TEMPLATE.md` and sends it to Agent 1 along with the relay protocol rules:
+
+- Deliver each block in `To Agent2 / content / end message now` format.
+- Wait for Agent 2's confirmation before sending the next block.
+- Send the authorization phrase when all blocks are delivered.
+
+The button turns green when sent.
+
+### Begin the workflow
+
+Click **→ Begin Workflow** (enabled only after both steps above are green).
+
+This advances to Phase 2 where SOC takes over routing automatically. See [The Module Block Workflow](#the-module-block-workflow) below.
+
+> **Returning to a project mid-session?** On startup SOC skips Phase 1a and lands directly in Phase 2 if your window calibration is already saved. Use **▶ Agent 1 SOP** and **▶ Agent 2 SOP** from Phase 2 to re-sync agents if needed.
+
+---
+
 ## Message Protocol
 
 All agent-to-agent messages must use this exact 3-line format:
@@ -127,6 +173,8 @@ SOC only routes a message **after the sentinel appears on screen**, preventing p
 ## The Module Block Workflow
 
 ### Overview
+
+This phase begins after Phase 1a is complete and **→ Begin Workflow** has been clicked.
 
 Agent 1 (Bing Copilot) plans a project and breaks it into numbered module blocks. It sends each block to Agent 2 one at a time. Agent 2 saves each block and confirms receipt. Once all blocks are delivered, Agent 1 authorizes implementation. Agent 2 implements all blocks in alphanumeric order and reports completion.
 
@@ -266,6 +314,8 @@ Every **5th message** sent to Agent 2 and every **10th message** sent to Agent 1
 | `↺ Release` | Release hold manually. Clears the hold and any same-body dedup block so the message can re-route. |
 | `⏸ Hold A1` | Block routing to Agent 1 (one-shot gate — auto-releases after the next successful send). |
 | `⏸ Hold A2` | Block routing to Agent 2 (one-shot gate — auto-releases after the next successful send). |
+| `⏸ Pause` | Pause all routing globally. OCR keeps scanning but nothing injects. Click **▶ Resume** to resume — body-match guards are cleared on resume so the agents' current window content routes fresh. |
+| `⟳ Welfare` | Send a re-sync prompt to both agents showing the last message sent and received. Fires automatically after 2 minutes of no pixel activity in the active OCR region. |
 
 ---
 
@@ -369,6 +419,9 @@ SOC_Ultralight/
 ├── config.json                     Auto-saved window handles and coordinates (git-ignored)
 ├── agent1 soc ultralight .txt      Agent 1 SOP — workflow structure template
 ├── agent 2 soc ultralight.txt      Agent 2 SOP — strict protocol instructions
+├── templates/                      Phase 1a project priming files
+│   ├── PROJECT_SUMMARY_TEMPLATE.md     Fill this in or load it via Browse in Phase 1a
+│   └── GENERAL_MODULE_BLOCK_TEMPLATE.md  Block format sent to Agent 1 by Phase 1a
 ├── buttons database/               PNG templates for auto-click and calibration
 │   └── registry.json               Template confidence training data
 ├── outbox/                         Drop .md files here for routing (git-ignored)
@@ -386,7 +439,7 @@ SOC_Ultralight/
 | `SCAN_NORMAL` | `1.5 s` | Seconds between OCR scans |
 | `SCAN_RAPID` | `0.3 s` | Rapid scan rate after `To Agent` spotted |
 | `RAPID_DURATION` | `8.0 s` | How long rapid mode stays active |
-| `WAIT_REPLY_TIMEOUT` | `60.0 s` | Hold timeout before re-sending |
+| `WAIT_REPLY_TIMEOUT` | `180.0 s` | Hold timeout before re-sending (3 min, sized for large blocks) |
 | `REMINDER_EVERY_AGENT1` | `10` | Agent 1 reminder interval (every N messages) |
 | `REMINDER_EVERY_AGENT2` | `5` | Agent 2 reminder interval (every N messages) |
 | `TEMPLATE_THRESH` | `0.80` | OpenCV match confidence threshold |
