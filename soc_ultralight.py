@@ -2459,7 +2459,8 @@ class SOCUltralight:
         msg = (
             f"[SOC QUIZ — PROJECT STATUS CHECK]\n"
             f"{project_line}"
-            "Please confirm your current awareness:\n\n"
+            "Answer the following in plain text for the user only. "
+            "Do NOT use the To AgentX relay format in this response.\n\n"
             "1. How many lettered modules (crates) does this project have? "
             "List each letter and its crate name.\n"
             "2. How many blocks have been delivered to Agent 2 so far?\n"
