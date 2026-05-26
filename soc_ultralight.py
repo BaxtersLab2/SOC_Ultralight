@@ -94,6 +94,7 @@ WAIT_REPLY_TIMEOUT   = 180.0  # seconds before hold state auto-releases (3 min f
 HOLD_LOG_INTERVAL    = 30.0   # log "holding" at most this often (seconds)
 HOLD_SCROLL_INTERVAL = 3.0    # scroll held agent window down every N seconds
 SCROLL_GRACE         = 60.0   # seconds to keep scrolling after hold times out
+AUTO_WELFARE_TIMEOUT = 600.0  # seconds since last successful route before auto-welfare fires (10 min)
 PASTE_DELAY      = 0.25   # seconds after window focus before paste
 SEND_DELAY       = 2.0    # seconds after paste before clicking Send
                           # (VS Code/Bing send button only appears after text is entered)
@@ -356,6 +357,8 @@ class SOCUltralight:
         self._scroll_grace:      dict[str, float] = {}   # agent_id → keep scrolling until this time
         self._last_routed_body:  dict[str, str]  = {}   # agent_id → hash of last body routed to them
         self._last_routed_text:  dict[str, str]  = {}   # agent_id → first line of last body (welfare check)
+        self._last_route_time:   float = time.time()    # when last successful route happened
+        self._welfare_fired:     bool  = False          # True after auto-welfare fires; reset on next successful route
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False}
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
@@ -1697,6 +1700,9 @@ class SOCUltralight:
 
             # Store first line of body for welfare check context (block ID or reply preview).
             self._last_routed_text[agent_id] = body.splitlines()[0][:120] if body else ""
+            # Routing is healthy — reset auto-welfare state.
+            self._last_route_time = time.time()
+            self._welfare_fired   = False
 
             # Update body-match guard: record what we just sent.
             # When the destination replies (routes to the other agent), the other
@@ -1903,6 +1909,8 @@ class SOCUltralight:
         self._log(f"[welfare] sending re-sync to agent1 and agent2")
         self._log(f"[welfare] last→agent2: {last_to_a2[:60]}")
         self._log(f"[welfare] last→agent1: {last_to_a1[:60]}")
+        self._log("[welfare] auto-welfare will NOT repeat — if agents stay unresponsive, "
+                  "human intervention required (check agent cloud connectivity)")
 
         # Clear the dedup/body-match blocks so routing can resume after welfare reply
         self._last_routed_body.clear()
@@ -1911,6 +1919,10 @@ class SOCUltralight:
         self._waiting_reply     = None
         self._waiting_since     = 0.0
         self._waiting_body_hash = None
+        # Reset stall clock — if agents respond, routing will reset _welfare_fired.
+        # If they don't respond, _welfare_fired stays True and auto-welfare won't repeat.
+        self._welfare_fired  = True
+        self._last_route_time = time.time()
         self.root.after(0, self._update_ocr_hold_label)
 
         threading.Thread(
@@ -1929,9 +1941,11 @@ class SOCUltralight:
             self.ocr_lbl.config(text="OCR: OFF", fg=FG)
             self._log("[ocr] stopped")
         else:
-            self._ocr_running = True
-            self._waiting_reply = None
-            self._waiting_since = 0.0
+            self._ocr_running    = True
+            self._waiting_reply  = None
+            self._waiting_since  = 0.0
+            self._last_route_time = time.time()   # reset stall clock on fresh start
+            self._welfare_fired  = False
             self.ocr_btn.config(text="■ Stop OCR", bg=RED, fg="white",
                                  activebackground="#c04040")
             self.ocr_lbl.config(text="OCR: scanning…", fg=GREEN)
@@ -1950,6 +1964,14 @@ class SOCUltralight:
             while self._ocr_running:
                 try:
                     self._ocr_tick(sct)
+                    # Auto-welfare: if no successful route for 10 minutes, fire once.
+                    # Does not repeat — if welfare itself gets no response the flag stays
+                    # True and the system pends human intervention.
+                    if (not self._welfare_fired
+                            and time.time() - self._last_route_time > AUTO_WELFARE_TIMEOUT):
+                        self._welfare_fired = True
+                        self._log("[welfare] ⟳ auto — no routing for 10 min; sending welfare check")
+                        self.root.after(0, self._welfare_check)
                 except OSError as e:
                     if "tesseract" in str(e).lower():
                         self._log(
