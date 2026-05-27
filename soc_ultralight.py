@@ -1427,13 +1427,19 @@ class SOCUltralight:
     # ── OCR region calibration overlay ───────────────────────────────────────────
 
     def _calibrate_ocr_region(self, agent_id: str):
-        """Full-screen drag-to-select overlay. User draws a rectangle over
-        the agent's message output area. That bounding box is used for all
-        subsequent OCR and scroll-read grabs for this agent."""
+        """Full-screen drag-to-select overlay spanning all monitors.
+        User draws a rectangle over the agent's message output area.
+        That bounding box is used for all subsequent OCR grabs."""
+        # Use Windows virtual-screen metrics so the overlay covers every
+        # monitor (including virtual displays).
+        _u32 = ctypes.windll.user32
+        vx = _u32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN — leftmost x
+        vy = _u32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN — topmost y
+        vw = _u32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN — total width
+        vh = _u32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN — total height
+
         overlay = tk.Toplevel(self.root)
-        sw = overlay.winfo_screenwidth()
-        sh = overlay.winfo_screenheight()
-        overlay.geometry(f"{sw}x{sh}+0+0")
+        overlay.geometry(f"{vw}x{vh}+{vx}+{vy}")
         overlay.overrideredirect(True)
         overlay.attributes("-topmost", True)
         overlay.attributes("-alpha", 0.45)
@@ -1447,11 +1453,11 @@ class SOCUltralight:
                       else "Claude Code" if agent_id == "agent3"
                       else "VS Code chat")
         canvas.create_text(
-            sw // 2, 36,
+            vw // 2, 36,
             text=f"Drag to select the {label_name} message output area",
             fill="#ffffff", font=("Segoe UI", 15, "bold"))
         canvas.create_text(
-            sw // 2, 64,
+            vw // 2, 64,
             text="Click-drag to draw box  •  release  •  click  ✓ Set Region  •  Esc to cancel",
             fill="#aaaaaa", font=("Segoe UI", 10))
 
@@ -1482,19 +1488,23 @@ class SOCUltralight:
                 fill=GREEN, font=("Consolas", 9))
 
         def on_set():
-            x1, y1, x2, y2 = _box
-            if x2 - x1 < 40 or y2 - y1 < 40:
+            bx1, by1, bx2, by2 = _box
+            if bx2 - bx1 < 40 or by2 - by1 < 40:
                 canvas.create_text(
-                    sw//2, sh//2,
+                    vw//2, vh//2,
                     text="Selection too small — drag a larger area",
                     fill=RED, font=("Segoe UI", 13, "bold"))
                 return
+            # Convert canvas coords (relative to overlay top-left) to
+            # absolute screen coordinates by adding the virtual screen origin.
+            ax1, ay1 = bx1 + vx, by1 + vy
+            ax2, ay2 = bx2 + vx, by2 + vy
             cfg = self.agents[agent_id]
-            cfg.ocr_region = (x1, y1, x2, y2)
-            w, h = x2 - x1, y2 - y1
+            cfg.ocr_region = (ax1, ay1, ax2, ay2)
+            w, h = ax2 - ax1, ay2 - ay1
             cfg.lbl_region.config(
-                text=f"region: {w}x{h}px ({x1},{y1})", fg=GREEN)
-            self._log(f"[{agent_id}] OCR region: ({x1},{y1})→({x2},{y2}) {w}x{h}px")
+                text=f"region: {w}x{h}px ({ax1},{ay1})", fg=GREEN)
+            self._log(f"[{agent_id}] OCR region: ({ax1},{ay1})→({ax2},{ay2}) {w}x{h}px")
             self._save_config()
             overlay.destroy()
 
@@ -1502,17 +1512,17 @@ class SOCUltralight:
         canvas.bind("<B1-Motion>",     on_drag)
         overlay.bind("<Escape>",       lambda e: overlay.destroy())
 
-        btn_y = sh - 52
+        btn_y = vh - 52
         tk.Button(
             overlay, text="✓ Set Region", command=on_set,
             bg=GREEN, fg="#1e1e1e", font=("Segoe UI", 11, "bold"),
             relief="flat", padx=16, pady=6, cursor="hand2"
-        ).place(x=sw//2 - 130, y=btn_y)
+        ).place(x=vw//2 - 130, y=btn_y)
         tk.Button(
             overlay, text="✕ Cancel", command=overlay.destroy,
             bg=RED, fg="white", font=("Segoe UI", 11, "bold"),
             relief="flat", padx=16, pady=6, cursor="hand2"
-        ).place(x=sw//2 + 30, y=btn_y)
+        ).place(x=vw//2 + 30, y=btn_y)
 
     # ── Auto-Click settings panel ─────────────────────────────────────────────
 
