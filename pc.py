@@ -194,6 +194,62 @@ def cmd_pos(_):
     x, y = pyautogui.position()
     print(f"Mouse position: ({x}, {y})")
 
+def cmd_watch(args):
+    """Continuously OCR an agent window and print what SOC Ultralight sees.
+
+    Usage:  watch [agent1|agent2|agent3] [interval_seconds]
+
+    Prints cleaned OCR text every interval (default 2s).
+    Flags routing signals: [TRIGGER->agentX] and [SENTINEL].
+    Compare terminal output against the actual Copilot window to verify accuracy.
+    Press Ctrl+C to stop.
+    """
+    cfg = _load_cfg()
+    agent   = args[0] if args else "agent1"
+    interval = float(args[1]) if len(args) > 1 else 2.0
+
+    if agent not in cfg:
+        print(f"Unknown agent: {agent!r}  (available: {', '.join(cfg)})")
+        return
+
+    bbox = tuple(cfg[agent]["ocr_region"])
+    last_hash = None
+    snap_path = os.path.join(_SNAP_DIR, f"snap_{agent}_watch.png")
+
+    print(f"Watching {agent}  region={bbox}  interval={interval}s  (Ctrl+C to stop)")
+    print("=" * 70)
+
+    while True:
+        img  = _grab(bbox)
+        text = pytesseract.image_to_string(_prepare_img(img), config="--psm 6")
+        h    = hashlib.md5(text.encode()).hexdigest()[:8]
+
+        tl      = text.lower()
+        trigger = next((ag for ag in ("agent1", "agent2", "agent3")
+                        if f"to {ag}" in tl), None)
+        sentinel = "end message now" in tl
+
+        changed  = (h != last_hash)
+        last_hash = h
+
+        ts      = time.strftime("%H:%M:%S")
+        status  = "NEW " if changed else "SAME"
+        signals = ""
+        if trigger:
+            signals += f"  [TRIGGER->{trigger}]"
+        if sentinel:
+            signals += "  [SENTINEL]"
+
+        print(f"\n[{ts}] hash={h}  {status}{signals}")
+        print("-" * 70)
+        for line in text.splitlines():
+            if line.strip():
+                print(" ", line)
+        print("-" * 70)
+
+        img.save(snap_path)
+        time.sleep(interval)
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 COMMANDS = {
@@ -209,6 +265,7 @@ COMMANDS = {
     "minimize":   cmd_minimize,
     "restore":    cmd_restore,
     "pos":        cmd_pos,
+    "watch":      cmd_watch,
 }
 
 if __name__ == "__main__":
