@@ -91,6 +91,9 @@ pytesseract.pytesseract.tesseract_cmd = _tess_path
 SCAN_NORMAL      = 1.5    # seconds between OCR scans (idle)
 SCAN_RAPID       = 0.3    # seconds between scans in rapid mode
 RAPID_DURATION   = 8.0    # seconds to stay rapid after "to agent" spotted
+TRIGGER_PERSIST_SECS     = 30.0   # seconds a seen trigger stays remembered after scrolling off
+SCROLL_ACCUM_TIMEOUT     = 45.0   # give up scroll-accumulation after this many seconds
+SCROLL_ACCUM_MIN_INTERVAL = 0.8   # minimum seconds between accumulation scroll steps
 WAIT_REPLY_TIMEOUT   = 180.0  # seconds before hold state auto-releases (3 min for large blocks)
 HOLD_LOG_INTERVAL    = 30.0   # log "holding" at most this often (seconds)
 HOLD_SCROLL_INTERVAL = 3.0    # scroll held agent window down every N seconds
@@ -380,6 +383,10 @@ class SOCUltralight:
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
         self._last_ocr_text:     dict[str, str]   = {} # agent_id → md5 of last OCR text processed
         self._inject_grace:      dict[str, float] = {} # agent_id → epoch until OCR routing suppressed
+        self._pending_trigger:   dict[str, tuple | None] = {}  # agent_id → (dest_agent, expiry) | None
+        self._scroll_accum:      dict[str, str]   = {}  # agent_id → accumulated OCR text across frames
+        self._scroll_accum_active: dict[str, bool] = {} # agent_id → True while accumulating
+        self._scroll_accum_since:  dict[str, float] = {} # agent_id → epoch when accumulation started
         self._manual_hold:       dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
         self._bypass_agent3:     bool = True   # when True, agent3 is ignored entirely
         self._attendance:        dict[str, bool] = {"agent1": False, "agent2": False, "agent3": False}
@@ -1075,6 +1082,10 @@ class SOCUltralight:
         tk.Button(
             log_hdr, text="Copy All", command=self._copy_log,
             bg=BG2, fg=FG, relief="flat", font=("Segoe UI", 7),
+            cursor="hand2", padx=6, bd=0).pack(side="right")
+        tk.Button(
+            log_hdr, text="📷 OCR", command=self._ocr_snapshot,
+            bg=BG2, fg=YELLOW, relief="flat", font=("Segoe UI", 7, "bold"),
             cursor="hand2", padx=6, bd=0).pack(side="right")
 
         self.log = scrolledtext.ScrolledText(
@@ -2285,6 +2296,10 @@ class SOCUltralight:
                 return False
             self._inject_to_agent(agent_id, body)
 
+            # Clear pending trigger for source window — message successfully routed
+            if source_agent and source_agent in self._pending_trigger:
+                self._pending_trigger[source_agent] = None
+
             # Store first line of body for welfare check context (block ID or reply preview).
             self._last_routed_text[agent_id] = body.splitlines()[0][:120] if body else ""
             # Routing is healthy — reset auto-welfare state.
@@ -2612,6 +2627,9 @@ class SOCUltralight:
             self._ocr_running = False
             self._waiting_reply = None
             self._waiting_since = 0.0
+            self._scroll_accum_active.clear()
+            self._scroll_accum.clear()
+            self._pending_trigger.clear()
             self.ocr_btn.config(text="▶ Start OCR", bg=GREEN, fg="#1e1e1e",
                                  activebackground="#3aaf7a")
             self.ocr_lbl.config(text="OCR: OFF", fg=FG)
@@ -2682,6 +2700,42 @@ class SOCUltralight:
                 in_rapid = time.time() < self._rapid_until
                 time.sleep(SCAN_RAPID if in_rapid else SCAN_NORMAL)
 
+    def _ocr_snapshot(self):
+        """On-demand OCR dump — grabs every configured region, runs Tesseract,
+        and prints raw + preprocessed text to the diagnostics log."""
+        configured = [(aid, cfg) for aid, cfg in self.agents.items() if cfg.ocr_region]
+        if not configured:
+            self._log("[snap] no OCR regions configured — calibrate first")
+            return
+        self._log("[snap] ── OCR SNAPSHOT ──────────────────────────")
+        for aid, cfg in configured:
+            if aid == "agent3" and self._bypass_agent3:
+                continue
+            rx0, ry0, rx1, ry1 = cfg.ocr_region
+            try:
+                img = ImageGrab.grab(bbox=(rx0, ry0, rx1, ry1), all_screens=True)
+            except Exception as e:
+                self._log(f"[snap:{aid}] grab failed: {e}")
+                continue
+            raw_text = pytesseract.image_to_string(
+                _prepare_img_for_ocr(img), config="--psm 6")
+            processed  = _preprocess_ocr(raw_text)
+            raw_h      = hashlib.md5(raw_text.encode()).hexdigest()[:8]
+            cached_h   = (self._last_ocr_text.get(aid) or "")[:8]
+            dedup_hit  = raw_h == cached_h
+            low        = processed.lower()
+            has_trigger  = bool(TRIGGER_RE.search(processed))
+            has_sentinel = any(v in low for v in _SENTINEL_VARIANTS)
+            self._log(
+                f"[snap:{aid}] hash={raw_h} cached={cached_h} "
+                f"dedup={'HIT-skip' if dedup_hit else 'MISS-process'} "
+                f"trigger={has_trigger} sentinel={has_sentinel}")
+            for line in processed.splitlines():
+                line = line.strip()
+                if line:
+                    self._log(f"  {line}")
+        self._log("[snap] ────────────────────────────────────────────")
+
     def _ocr_tick(self, sct):
         # Scan each agent window separately — directional routing prevents a window's
         # own injected text (SOPs, reminders) from being re-routed back into itself.
@@ -2745,10 +2799,63 @@ class SOCUltralight:
                     f"[ocr:{aid}] trigger=YES sentinel={'YES' if has_sentinel else 'no'} "
                     f"hold={self._waiting_reply or 'none'}")
             if has_trigger and not has_sentinel:
-                preview = " | ".join(
-                    ln.strip() for ln in text.splitlines() if ln.strip())[:120]
-                self._log(f"[ocr:{aid}] no sentinel — text: {preview}")
-            self._ocr_process(text, source_agent=aid)
+                # Keep rapid mode alive while accumulating
+                self._rapid_until = time.time() + RAPID_DURATION
+                # Enter or continue scroll-accumulation mode: stitch OCR frames
+                # top-to-bottom while scrolling until the sentinel appears.
+                if not self._scroll_accum_active.get(aid):
+                    self._scroll_accum_active[aid] = True
+                    self._scroll_accum_since[aid]  = time.time()
+                    self._scroll_accum[aid]        = text
+                    self._log(f"[accum:{aid}] started — accumulating frames")
+                else:
+                    elapsed = time.time() - self._scroll_accum_since.get(aid, time.time())
+                    if elapsed > SCROLL_ACCUM_TIMEOUT:
+                        self._log(f"[accum:{aid}] timeout ({elapsed:.0f}s) — clearing")
+                        self._scroll_accum_active[aid] = False
+                        self._scroll_accum[aid] = ""
+                    else:
+                        self._scroll_accum[aid] = self._merge_scroll_text(
+                            self._scroll_accum[aid], text)
+                # Scroll down so next rapid tick can see more of the message
+                now = time.time()
+                if now - self._last_scroll.get(aid, 0) >= SCROLL_ACCUM_MIN_INTERVAL:
+                    self._last_scroll[aid] = now
+                    threading.Thread(
+                        target=self._scroll_agent_down,
+                        args=(aid,), daemon=True).start()
+            elif has_sentinel and self._scroll_accum_active.get(aid):
+                # Sentinel now visible — merge current frame into accumulated buffer
+                # and route the complete message.
+                merged = self._merge_scroll_text(self._scroll_accum[aid], text)
+                self._log(
+                    f"[accum:{aid}] sentinel found — routing "
+                    f"{len(merged)} accumulated chars")
+                n = self._route_text(merged, source_agent=aid)
+                if n == 0:
+                    # Fallback: route current frame alone (may have inline trigger)
+                    self._route_text(text, source_agent=aid)
+                self._scroll_accum_active[aid] = False
+                self._scroll_accum[aid] = ""
+            elif self._scroll_accum_active.get(aid):
+                # Mid-scroll: neither trigger nor sentinel visible — just the body.
+                # Keep merging and scrolling until sentinel appears.
+                elapsed = time.time() - self._scroll_accum_since.get(aid, time.time())
+                if elapsed > SCROLL_ACCUM_TIMEOUT:
+                    self._log(f"[accum:{aid}] timeout ({elapsed:.0f}s) — clearing")
+                    self._scroll_accum_active[aid] = False
+                    self._scroll_accum[aid] = ""
+                else:
+                    self._scroll_accum[aid] = self._merge_scroll_text(
+                        self._scroll_accum[aid], text)
+                now = time.time()
+                if now - self._last_scroll.get(aid, 0) >= SCROLL_ACCUM_MIN_INTERVAL:
+                    self._last_scroll[aid] = now
+                    threading.Thread(
+                        target=self._scroll_agent_down,
+                        args=(aid,), daemon=True).start()
+            else:
+                self._ocr_process(text, source_agent=aid)
 
             # Auto-scroll: if we're waiting for THIS agent to reply, scroll its
             # window down so the tail of a long response stays in the OCR region.
@@ -2766,9 +2873,23 @@ class SOCUltralight:
         text = _preprocess_ocr(text)   # normalise multi-char garbles before regex
         low = text.lower()
 
-        # Step 1: "to agent" spotted → enter rapid mode
+        # Evict stale pending trigger before doing anything else
+        if source_agent:
+            pt = self._pending_trigger.get(source_agent)
+            if pt and time.time() > pt[1]:
+                self._pending_trigger[source_agent] = None
+                self._log(f"[trigger] {source_agent} pending trigger expired (30s)")
+
+        # Step 1: "to agent" spotted → enter rapid mode + record pending trigger
         if TRIGGER_RE.search(text):
             self._rapid_until = time.time() + RAPID_DURATION
+            if source_agent:
+                digit_m = re.search(rf"to\s+agent\s*({_D})", text, re.IGNORECASE)
+                if digit_m:
+                    digit = _OCR_DIGIT_NORM.get(digit_m.group(1), digit_m.group(1))
+                    if digit in ("1", "2", "3"):
+                        self._pending_trigger[source_agent] = (
+                            f"agent{digit}", time.time() + TRIGGER_PERSIST_SECS)
 
         # Attendance check: look for SOC-ACK-N in the source agent's window.
         # Only register if the ACK digit matches the window we're reading, so a
@@ -2781,14 +2902,47 @@ class SOCUltralight:
                     self._mark_attendance(ack_aid)
 
         # Step 2: full sentinel present → extract and route
-        if any(v in low for v in _SENTINEL_VARIANTS):
+        has_sentinel = any(v in low for v in _SENTINEL_VARIANTS)
+        if has_sentinel and TRIGGER_RE.search(text):
+            # Normal path: trigger + sentinel both visible in this frame
             self._route_text(text, source_agent=source_agent)
+        elif has_sentinel and source_agent:
+            # Sentinel visible but trigger scrolled off top — check pending trigger
+            pt = self._pending_trigger.get(source_agent)
+            if pt and time.time() < pt[1]:
+                dest_agent, _ = pt
+                self._log(
+                    f"[trigger] sentinel only — using remembered "
+                    f"{source_agent}→{dest_agent}")
+                self._route_with_remembered_trigger(text, source_agent, dest_agent)
+            else:
+                # No pending trigger — try routing anyway (INLINE_RE fallback may match)
+                self._route_text(text, source_agent=source_agent)
 
         # Mode triggers are now checked inside _try_route only — never on raw OCR text —
         # so SOP content displayed on screen cannot false-fire mode changes.
 
         # Step 3: [CMD: ...] hook for Bing disconnected-hand (disabled)
         self._parse_cmd_blocks(text)
+
+    def _route_with_remembered_trigger(
+            self, ocr_text: str, source_agent: str, dest_agent: str):
+        """Route a message when the trigger was seen in a prior tick but has since
+        scrolled off the top of the OCR region. Prepends the remembered routing
+        header so SENTINEL_RE can parse it, then routes through the normal pipeline."""
+        digit = dest_agent[-1]
+        # Prepend remembered header; body is the current OCR frame up to sentinel
+        synthetic = f"To Agent{digit}\n{ocr_text}\nend message now"
+        n = self._route_text(synthetic, source_agent=source_agent)
+        if n > 0:
+            self._pending_trigger[source_agent] = None
+            self._log(
+                f"[trigger] ✓ remembered trigger routed "
+                f"({source_agent}→{dest_agent})")
+        else:
+            self._log(
+                f"[trigger] sentinel present but _route_text matched 0 "
+                f"— body may be deduped or malformed")
 
     # ── Disconnected-hand CMD parser (Bing → OCR → local action) ─────────────
     # Set CMD_ENABLED = True to allow Bing chat to write files via OCR commands.
