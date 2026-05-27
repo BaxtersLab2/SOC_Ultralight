@@ -71,6 +71,13 @@ _mss_ctor = getattr(mss, 'MSS', None) or getattr(mss, 'mss', None)
 from PIL import Image, ImageTk, ImageGrab, ImageEnhance, ImageFilter, ImageOps, ImageStat
 import pytesseract
 
+# vdd — Parsec Virtual Display Driver control (optional, requires setup_vdd.bat)
+try:
+    from vdd import VddController as _VddController
+    _VDD_OK = True
+except ImportError:
+    _VDD_OK = False
+
 # opencv-python is optional — enables template matching for auto-calibration
 try:
     import cv2
@@ -402,6 +409,8 @@ class SOCUltralight:
         self._inject_lock  = threading.Lock()    # serialises clipboard writes
         self._click_count  = 0
         self._registry: dict = self._load_registry()  # template training history
+        self._vdd_active:      bool = False
+        self._vdd_controller               = None
 
         # Auto-click state
         self._autoclick_vars:    dict[str, tk.BooleanVar] = {}   # stem → BooleanVar (UI only)
@@ -1052,6 +1061,12 @@ class SOCUltralight:
             bg=BG2, fg=ACCENT, font=("Segoe UI", 9, "bold"),
             relief="flat", cursor="hand2", padx=8, pady=4)
         self.bing_btn.pack(side="left", padx=(4, 0))
+        self._vdd_btn = tk.Button(
+            ctrl2, text="🖥 VDesk",
+            command=self._toggle_virtual_desktop,
+            bg=BG2, fg="#888888", font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=4)
+        self._vdd_btn.pack(side="left", padx=(4, 0))
         self.clicks_lbl = tk.Label(ctrl2, text="sends: 0",
                                     bg=BG, fg=YELLOW, font=("Segoe UI", 8))
         self.clicks_lbl.pack(side="right")
@@ -3135,6 +3150,39 @@ class SOCUltralight:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.log.get("1.0", "end"))
         self._set_status("Log copied to clipboard")
+
+    def _toggle_virtual_desktop(self):
+        if not _VDD_OK:
+            self._log("VDD not available — run setup_vdd.bat as Administrator first", "warn")
+            self._set_status("Virtual display driver not installed")
+            return
+        if self._vdd_controller is None:
+            self._vdd_controller = _VddController()
+        ctrl = self._vdd_controller
+        if not ctrl.is_available():
+            self._log("vdd executable not found — run setup_vdd.bat as Administrator", "warn")
+            self._set_status("vdd not found — see setup_vdd.bat")
+            return
+        if not self._vdd_active:
+            ok = ctrl.add(width=1920, height=2160)
+            if ok:
+                self._vdd_active = True
+                self._vdd_btn.config(fg=GREEN)
+                self._log("Virtual display added (1920×2160) — recalibrate OCR regions", "ok")
+                self._set_status("Virtual display ON")
+            else:
+                self._log("Failed to add virtual display", "warn")
+                self._set_status("Virtual display add failed")
+        else:
+            ok = ctrl.remove_all()
+            self._vdd_active = False
+            self._vdd_btn.config(fg="#888888")
+            if ok:
+                self._log("Virtual display removed", "ok")
+                self._set_status("Virtual display OFF")
+            else:
+                self._log("Virtual display remove returned non-zero", "warn")
+                self._set_status("Virtual display remove failed")
 
     def _fit_window(self):
         """Resize window height to exactly match packed content."""
