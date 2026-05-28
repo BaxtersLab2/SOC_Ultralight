@@ -199,7 +199,8 @@ def _find_button(template_name, threshold=0.75):
 def _inject_to_agent1(text):
     """Paste text into Agent 1's input field and press Enter to send. Returns True on success."""
     import pyperclip
-    input_pos = _find_button("agent1_input.png") or _find_button("agent1_chat_input_field.png")
+    # agent1_chat_input_field.png is more reliable (agent1_input.png false-positives on physical monitor)
+    input_pos = _find_button("agent1_chat_input_field.png") or _find_button("agent1_input.png")
     if not input_pos:
         print("  [inject] agent1 input field not found")
         return False
