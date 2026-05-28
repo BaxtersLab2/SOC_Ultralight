@@ -1791,7 +1791,8 @@ class SOCUltralight:
                     # Snapshot the enabled set — no Tcl calls from this thread
                     enabled = set(self._autoclick_enabled)
                     if enabled:
-                        raw = sct.grab(sct.monitors[0])
+                        mon = sct.monitors[0]   # full virtual desktop
+                        raw = sct.grab(mon)
                         screen_bgr = cv2.cvtColor(
                             np.array(raw, dtype=np.uint8), cv2.COLOR_BGRA2BGR)
 
@@ -1811,8 +1812,12 @@ class SOCUltralight:
                             _, max_val, _, max_loc = cv2.minMaxLoc(res)
                             if max_val >= TEMPLATE_THRESH:
                                 h_t, w_t = tmpl.shape[:2]
-                                cx = max_loc[0] + w_t // 2
-                                cy = max_loc[1] + h_t // 2
+                                # Add monitor origin so coords are Windows screen coords,
+                                # not pixel-offsets within the mss capture buffer.
+                                # Matters when a monitor sits above/left of primary
+                                # (mon['top'] or mon['left'] is negative).
+                                cx = max_loc[0] + w_t // 2 + mon['left']
+                                cy = max_loc[1] + h_t // 2 + mon['top']
                                 pyautogui.click(cx, cy)
                                 self._autoclick_last[stem] = time.time()
                                 self._log(
