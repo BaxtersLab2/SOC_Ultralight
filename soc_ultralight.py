@@ -2463,6 +2463,32 @@ class SOCUltralight:
         except Exception:
             pass
 
+    def _scroll_agent_up(self, agent_id: str, n: int = 3) -> None:
+        """Scroll the agent's chat window up by n scroll clicks to reveal earlier content."""
+        cfg = self.agents.get(agent_id)
+        if not cfg or not cfg.ocr_region:
+            return
+        rx0, ry0, rx1, ry1 = cfg.ocr_region
+        x, y = (rx0 + rx1) // 2, (ry0 + ry1) // 2
+        try:
+            orig = win32api.GetCursorPos()
+            pyautogui.scroll(n * 5, x, y)   # positive = scroll up on Windows
+            win32api.SetCursorPos(orig)
+        except Exception:
+            pass
+
+    def _ocr_grab(self, agent_id: str) -> str:
+        """Grab and OCR the current content of agent_id's configured region."""
+        cfg = self.agents.get(agent_id)
+        if not cfg or not cfg.ocr_region:
+            return ""
+        rx0, ry0, rx1, ry1 = cfg.ocr_region
+        try:
+            img = ImageGrab.grab(bbox=(rx0, ry0, rx1, ry1), all_screens=True)
+        except Exception:
+            return ""
+        return pytesseract.image_to_string(_prepare_img_for_ocr(img), config="--psm 6")
+
     def _ocr_release_hold(self):
         """Manually clear the hold state — bound to the ↺ button.
         Works whether hold is active OR already timed out (post-timeout dedup block).
@@ -2858,6 +2884,21 @@ class SOCUltralight:
                 # Sentinel now visible — merge current frame into accumulated buffer
                 # and route the complete message.
                 merged = self._merge_scroll_text(self._scroll_accum[aid], text)
+                # If the trigger header isn't at the start of accumulated content,
+                # the window was mid-message when accumulation began. Scroll up to
+                # capture the beginning, then prepend whatever extra text is revealed.
+                if not TRIGGER_RE.search(merged.split("\n")[0] if merged else ""):
+                    self._log(
+                        f"[accum:{aid}] trigger not at start — back-scrolling to recover header")
+                    for _ in range(6):
+                        self._scroll_agent_up(aid, n=1)
+                        time.sleep(0.25)
+                        top_frame = self._ocr_grab(aid)
+                        if top_frame.strip():
+                            merged = self._merge_scroll_text(top_frame, merged)
+                        if TRIGGER_RE.search(top_frame.split("\n")[0] if top_frame else ""):
+                            self._log(f"[accum:{aid}] header recovered after back-scroll")
+                            break
                 self._log(
                     f"[accum:{aid}] sentinel found — routing "
                     f"{len(merged)} accumulated chars")
