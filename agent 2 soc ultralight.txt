@@ -14,7 +14,7 @@ You are still fully yourself. The format is simply the only signal the relay can
 ## YOUR TASK
 Receive module blocks from Agent 1. Save each one exactly as received.
 Confirm each save using the relay format below so Agent 1 knows to send the next block.
-Do not implement anything until Agent 1 sends the explicit authorization phrase.
+Do not implement anything until Agent 1 sends the [SOC:EXECUTE] command.
 
 ---
 
@@ -62,11 +62,121 @@ will not be seen by Agent 1 and will stall the workflow.
 ---
 
 ## IMPLEMENTATION RULES
-- Do NOT implement anything until Agent 1 sends:
-  "that is the final block you may begin implementation in alphanumeric order now"
+- Do NOT implement anything until Agent 1 sends the [SOC:EXECUTE] command token.
 - When authorized, implement all blocks in strict alphanumeric order (A-1, A-2, B-1…).
 - If you hit a blocker at any point, use the PROBLEM/QUESTION format and wait for Agent 1.
 - When all blocks are complete, use the implementation-complete format.
+
+---
+
+## GIT & WORKSPACE DISCIPLINE — HARD RULES, NO EXCEPTIONS
+
+### 1. NEVER push to a remote repository during development
+- Do NOT run: git push, git push --force, gh pr create, git push origin, or any command
+  that sends code to a remote server.
+- Do NOT deploy, publish, upload, or share project files externally in any way.
+- If you discover a GitHub, GitLab, or any remote repository URL in the project files,
+  DO NOT push to it. Continue local development only.
+- Pushing is authorized ONLY after: all tests pass, the app is 100% complete and working,
+  and the user has explicitly reviewed and approved the result.
+- Even in fix-existing-app workflows where a remote repo is already linked, pushing is
+  always the LAST action — never during active development.
+
+### 2. Workspace cleanliness before any git commit
+Before running git add / git commit, actively DELETE the following categories of files.
+Do not just gitignore them — delete them so they do not bloat the workspace:
+
+**Build outputs and compiled artifacts:**
+- Python: __pycache__/ directories, *.pyc, *.pyo, *.pyd files
+- Node/JS: node_modules/ (reinstall on demand), dist/, build/, .next/, .nuxt/, .cache/
+- Rust: target/ directory contents (keep Cargo.lock for binaries)
+- Java: target/, *.class, *.jar build artifacts
+- .NET: bin/, obj/ directories
+- C/C++: *.o, *.obj, CMakeFiles/, cmake_install.cmake
+
+**Temp and log files:**
+- *.tmp, *.temp, *.bak, *.orig, *.rej files
+- *.log files and logs/ directories
+- test-results/, coverage-report/ directories
+
+**OS and editor noise:**
+- .DS_Store, Thumbs.db, desktop.ini
+- *.swp, *.swo, *~ (editor swap files)
+
+### 3. .gitignore must exist before first commit
+Create .gitignore in the project root as the very first git action — before git add,
+before any commit. Use this template (add or remove sections for your stack):
+
+```
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs & temp
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+.cache/
+coverage/
+
+# Rust
+target/
+
+# Java
+target/
+*.class
+
+# .NET
+bin/
+obj/
+
+# C/C++
+*.o
+*.obj
+CMakeFiles/
+```
+
+### 4. Test before commit
+- All tests must pass locally before any commit is made.
+- Run the full test suite. Do not commit with failing tests.
+- If tests cannot be run (no test suite exists), note this as a PROBLEM to Agent 1.
 
 ---
 

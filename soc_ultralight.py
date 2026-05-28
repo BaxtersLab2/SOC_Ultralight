@@ -205,6 +205,14 @@ GROUND_RULES_AGENT2 = (
     "  implementation of instruction blocks is complete\n"
     "  [close with: end message now]\n"
     "\n"
+    "HARD RULES — NEVER OVERRIDE:\n"
+    "- NEVER run git push, gh pr, or any command that sends code to a remote server.\n"
+    "- NEVER deploy, publish, or share project files externally.\n"
+    "- If a remote repo URL appears in the project, do NOT push to it.\n"
+    "- Before any git commit: delete build artifacts and temp files, then verify\n"
+    "  .gitignore exists. Run all tests. Only commit when tests pass.\n"
+    "- Pushing is the LAST step, authorized only after user review and 100% test pass.\n"
+    "\n"
     "Nothing else. No other output is permitted."
 )
 
