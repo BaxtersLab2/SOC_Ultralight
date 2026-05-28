@@ -3990,11 +3990,11 @@ class SOCUltralight:
                 git_log=git_log,
                 user_report=user_report)
 
-            # Write to %TEMP%\soc_phase3\ — completely outside any workspace or
-            # file tree that agents might browse, so there's no accidental pickup
-            # before the user deliberately starts Phase 3.
-            import tempfile
-            staging_dir = os.path.join(tempfile.gettempdir(), "soc_phase3")
+            # Write to staging/ inside the SOC Ultralight source folder so it is
+            # included in source backups, but naturally quarantined — agents only
+            # see content injected into their chat windows, never files in folders.
+            soc_dir     = os.path.dirname(os.path.abspath(__file__))
+            staging_dir = os.path.join(soc_dir, "staging")
             os.makedirs(staging_dir, exist_ok=True)
             sop_path = os.path.join(staging_dir, "phase3_debug_sop.md")
             try:

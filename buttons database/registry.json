@@ -1,7 +1,7 @@
 {
   "agent1_chat_input_field.png": {
-    "matches": 46,
-    "conf_sum": 40.978556752204895,
+    "matches": 47,
+    "conf_sum": 41.82464736700058,
     "trained": true,
     "action": "click"
   },
@@ -30,32 +30,32 @@
     "action": "click"
   },
   "agent1_input.png": {
-    "matches": 20,
-    "conf_sum": 18.823074281215668,
+    "matches": 22,
+    "conf_sum": 20.822814345359802,
     "trained": true,
     "action": "focus_paste"
   },
   "agent1_scroll_dn.png": {
-    "matches": 31,
-    "conf_sum": 30.042510867118835,
+    "matches": 38,
+    "conf_sum": 37.0414137840271,
     "trained": true,
     "action": "click"
   },
   "agent1_scroll_up.png": {
-    "matches": 33,
-    "conf_sum": 32.047195076942444,
+    "matches": 40,
+    "conf_sum": 38.74842828512192,
     "trained": true,
     "action": "click"
   },
   "agent1_send.png": {
-    "matches": 18,
-    "conf_sum": 17.931500673294067,
+    "matches": 20,
+    "conf_sum": 19.931328237056732,
     "trained": true,
     "action": "click"
   },
   "agent2_scroll_up.png": {
-    "matches": 14,
-    "conf_sum": 13.416552722454071,
+    "matches": 19,
+    "conf_sum": 18.416285455226898,
     "trained": true,
     "action": "click"
   },
@@ -66,15 +66,15 @@
     "action": "click"
   },
   "send_message_to_agent1.png": {
-    "matches": 65,
-    "conf_sum": 54.11606252193451,
+    "matches": 72,
+    "conf_sum": 59.943860709667206,
     "trained": true,
     "action": "click"
   },
   "send_message_to_claude.png": {
-    "matches": 9,
-    "conf_sum": 8.213600873947144,
-    "trained": false,
+    "matches": 11,
+    "conf_sum": 9.9239981174469,
+    "trained": true,
     "action": "click"
   },
   "agent2_input.png": {
@@ -84,26 +84,26 @@
     "action": "focus_paste"
   },
   "agent2_scroll_dn.png": {
-    "matches": 45,
-    "conf_sum": 43.68570822477341,
+    "matches": 51,
+    "conf_sum": 49.612548649311066,
     "trained": true,
     "action": "click"
   },
   "agent2_send.png": {
-    "matches": 13,
-    "conf_sum": 12.779078006744385,
+    "matches": 14,
+    "conf_sum": 13.702095866203308,
     "trained": true,
     "action": "click"
   },
   "send_message_to_agent2.png": {
-    "matches": 73,
-    "conf_sum": 66.24621903896332,
+    "matches": 79,
+    "conf_sum": 71.78974676132202,
     "trained": true,
     "action": "click"
   },
   "claude_chat_input_field.png": {
-    "matches": 3,
-    "conf_sum": 2.9961787462234497,
+    "matches": 5,
+    "conf_sum": 4.9936195611953735,
     "trained": false,
     "action": "click"
   },
@@ -114,14 +114,14 @@
     "action": "click"
   },
   "agent3_scroll_dn.png": {
-    "matches": 3,
-    "conf_sum": 2.978417992591858,
+    "matches": 4,
+    "conf_sum": 3.7828208804130554,
     "trained": false,
     "action": "click"
   },
   "agent3_send.png": {
-    "matches": 3,
-    "conf_sum": 2.9987221360206604,
+    "matches": 6,
+    "conf_sum": 5.619081437587738,
     "trained": false,
     "action": "click"
   },
