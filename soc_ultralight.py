@@ -3945,8 +3945,10 @@ class SOCUltralight:
                  pady=8).pack(fill="x", padx=16)
 
         tk.Label(dlg,
-                 text="Describe what isn't working. Be specific — list each issue\n"
-                      "separately so Claude can tackle them one at a time.",
+                 text="Describe what isn't working. List each issue separately\n"
+                      "so Claude can tackle them one at a time.\n"
+                      "The SOP is saved outside your workspace until you drag\n"
+                      "it into Claude's chat — agents won't see it early.",
                  bg=BG, fg=FG, font=("Segoe UI", 8), justify="left",
                  wraplength=360).pack(anchor="w", padx=16)
 
@@ -3988,7 +3990,13 @@ class SOCUltralight:
                 git_log=git_log,
                 user_report=user_report)
 
-            sop_path = os.path.join(workspace, "phase3_debug_sop.md")
+            # Write to %TEMP%\soc_phase3\ — completely outside any workspace or
+            # file tree that agents might browse, so there's no accidental pickup
+            # before the user deliberately starts Phase 3.
+            import tempfile
+            staging_dir = os.path.join(tempfile.gettempdir(), "soc_phase3")
+            os.makedirs(staging_dir, exist_ok=True)
+            sop_path = os.path.join(staging_dir, "phase3_debug_sop.md")
             try:
                 with open(sop_path, "w", encoding="utf-8") as f:
                     f.write(sop)
@@ -3996,19 +4004,20 @@ class SOCUltralight:
                 status_lbl.config(text=f"Error writing file: {e}", fg=RED)
                 return
 
-            # Try to open the file in VS Code so it appears in the editor
+            # Open in VS Code so user can drag it into Claude's chat
             try:
                 import subprocess
                 subprocess.Popen(["code", sop_path], shell=True)
             except Exception:
                 pass
 
+            short = sop_path.replace(os.path.expanduser("~"), "~")
             status_lbl.config(
-                text=f"Saved: phase3_debug_sop.md\n"
-                     "Drag it into Claude's chat — or type:\n"
-                     "Read phase3_debug_sop.md and begin debugging.",
+                text=f"Ready: {short}\n"
+                     "Drag it into Claude's chat, or type:\n"
+                     "Read the phase3 debug SOP and begin.",
                 fg=GREEN)
-            self._log(f"[phase3] debug SOP written → {sop_path}")
+            self._log(f"[phase3] debug SOP staged (outside workspace) → {sop_path}")
 
         btn_row = tk.Frame(dlg, bg=BG)
         btn_row.pack(fill="x", padx=16, pady=(8, 12))
