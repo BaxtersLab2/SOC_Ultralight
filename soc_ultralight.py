@@ -327,6 +327,76 @@ AGENT2_SOP = _load_sop(
     "You are Agent2. Store every module block exactly as received. "
     "Do not implement until Agent1 sends the final block phrase.")
 
+# ── Phase 3 Debug SOP template ────────────────────────────────────────────────
+# Slot tokens replaced at runtime: {workspace} {project} {git_log} {user_report}
+PHASE3_SOP_TEMPLATE = """
+=== PHASE 3: DEBUGGING AGENT ===
+
+You are now operating as a Debugging Agent for a SOC Ultralight-built project.
+The user has completed Phase 2 (app built and delivered) and needs your help
+diagnosing and fixing the parts of the app that are not working correctly.
+
+== YOUR CAPABILITIES ==
+
+You have direct access to:
+  Read / Edit / Write / Bash / Grep / Glob  — inspect and modify any project file
+  Agent (subagent)                          — delegate parallel research tasks
+
+You also have pc.py — a visual debugging tool in the workspace. Use it via Bash:
+  py pc.py screenshot [x0 y0 x1 y1]    capture screen region → snap_screen.png
+  py pc.py ocr [agent1|agent2|x y x y] read text from a screen region via OCR
+  py pc.py find template.png [thresh]  locate a UI element; returns center x,y
+  py pc.py click x y                   left-click at Windows screen coordinates
+  py pc.py rclick x y                  right-click
+  py pc.py paste "text" x y            click xy then paste text via clipboard
+  py pc.py pos                         print current mouse cursor position
+
+After any screenshot, use the Read tool on the saved PNG path to visually inspect it.
+Example workflow:
+  Bash: py pc.py screenshot
+  Read: C:\\path\\to\\snap_screen.png
+
+== PROJECT CONTEXT ==
+
+Workspace : {workspace}
+Project   : {project}
+
+Recent commits:
+{git_log}
+
+== USER REPORT — WHAT IS NOT WORKING ==
+
+{user_report}
+
+== DEBUGGING WORKFLOW ==
+
+Work through each reported issue in order. For each issue:
+
+  1. OBSERVE    Take a screenshot to see the current app state.
+  2. REPRODUCE  Interact with the app to trigger the bug (click, type, etc.).
+  3. DIAGNOSE   Read the relevant code — use Grep to find the right function.
+  4. HYPOTHESIZE Form a specific, testable theory about the root cause.
+  5. FIX        Make the minimal targeted change. Do not touch unrelated code.
+  6. VERIFY     Screenshot again to confirm the fix works visually.
+  7. NEXT       Move to the next issue and repeat.
+
+== GROUND RULES ==
+
+- Take action autonomously. Do not ask for permission before each step.
+- Only pause and message the user when you genuinely cannot proceed alone:
+    * You need the user to physically do something (restart the app, click a
+      button that requires their credentials, confirm a destructive action).
+    * You have tried multiple approaches and are stuck.
+- Fix issues one at a time and verify each before moving on.
+- If you cannot reproduce an issue, say so and ask the user to demonstrate it.
+- Commit working fixes with a clear commit message after each issue is resolved.
+- When all reported issues are resolved (or blocked), give the user a clear
+  summary: what was fixed, what still needs attention, and suggested next steps.
+
+Begin now: acknowledge the user's report, take a screenshot to see the current
+state of the app, and start working through the issue list.
+""".strip()
+
 
 class AgentConfig:
     __slots__ = ("hwnd", "title", "input_xy", "send_xy",
@@ -1084,6 +1154,20 @@ class SOCUltralight:
         self.project_entry.bind("<Return>", lambda _: self.project_entry.master.focus_set())
 
         self._build_autoclick_panel(p)
+
+        # ── Phase 3 separator + button ────────────────────────────────────────
+        tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=(8, 0))
+        p3_row = tk.Frame(p, bg=BG, pady=4)
+        p3_row.pack(fill="x", padx=12)
+        tk.Button(
+            p3_row,
+            text="🔬  Phase 3: Debug",
+            command=self._launch_phase3,
+            bg="#3a2a4a", fg="#c586c0",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2",
+            padx=10, pady=5, anchor="center"
+        ).pack(fill="x")
 
     def _build_log_status(self):
         self._log_open = False
@@ -3845,6 +3929,105 @@ class SOCUltralight:
             daemon=True).start()
         self._log("[mode] Agent2 SOP sent — 25s OCR grace active")
         self._set_status("Agent2 SOP sent")
+
+    def _launch_phase3(self):
+        """Open Phase 3 debug dialog — collects user's issue list, assembles the
+        debug SOP with live project context, and writes it to phase3_debug_sop.md
+        in the workspace so the user can drag it into Claude's chat."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Phase 3 — Debug")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Phase 3: Debugging Agent",
+                 bg=BG, fg="#c586c0", font=("Segoe UI", 11, "bold"),
+                 pady=8).pack(fill="x", padx=16)
+
+        tk.Label(dlg,
+                 text="Describe what isn't working. Be specific — list each issue\n"
+                      "separately so Claude can tackle them one at a time.",
+                 bg=BG, fg=FG, font=("Segoe UI", 8), justify="left",
+                 wraplength=360).pack(anchor="w", padx=16)
+
+        txt = tk.Text(dlg, width=48, height=10,
+                      bg=BG2, fg=FG, insertbackground=FG,
+                      font=("Consolas", 9), relief="flat",
+                      padx=6, pady=6, wrap="word")
+        txt.pack(fill="both", padx=16, pady=(6, 0))
+        txt.insert("1.0",
+                   "1. \n"
+                   "2. \n"
+                   "3. \n")
+        txt.focus_set()
+
+        status_lbl = tk.Label(dlg, text="", bg=BG, fg=GREEN,
+                              font=("Segoe UI", 8, "italic"))
+        status_lbl.pack(padx=16, pady=(4, 0))
+
+        def _prepare():
+            user_report = txt.get("1.0", "end").strip()
+            if not user_report or user_report in ("1. \n2. \n3.", "1. \n2. \n3. "):
+                status_lbl.config(text="Please describe what isn't working first.", fg=ORANGE)
+                return
+
+            # Gather live project context
+            workspace = os.path.dirname(os.path.abspath(__file__))
+            project   = self._project_name_var.get().strip() or "(unnamed)"
+            try:
+                import subprocess
+                git_log = subprocess.check_output(
+                    ["git", "-C", workspace, "log", "--oneline", "-12"],
+                    stderr=subprocess.DEVNULL, text=True).strip()
+            except Exception:
+                git_log = "(git log unavailable)"
+
+            sop = PHASE3_SOP_TEMPLATE.format(
+                workspace=workspace,
+                project=project,
+                git_log=git_log,
+                user_report=user_report)
+
+            sop_path = os.path.join(workspace, "phase3_debug_sop.md")
+            try:
+                with open(sop_path, "w", encoding="utf-8") as f:
+                    f.write(sop)
+            except Exception as e:
+                status_lbl.config(text=f"Error writing file: {e}", fg=RED)
+                return
+
+            # Try to open the file in VS Code so it appears in the editor
+            try:
+                import subprocess
+                subprocess.Popen(["code", sop_path], shell=True)
+            except Exception:
+                pass
+
+            status_lbl.config(
+                text=f"Saved: phase3_debug_sop.md\n"
+                     "Drag it into Claude's chat — or type:\n"
+                     "Read phase3_debug_sop.md and begin debugging.",
+                fg=GREEN)
+            self._log(f"[phase3] debug SOP written → {sop_path}")
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(fill="x", padx=16, pady=(8, 12))
+        tk.Button(
+            btn_row, text="Prepare Debug File",
+            command=_prepare,
+            bg="#3a2a4a", fg="#c586c0",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2",
+            padx=12, pady=5
+        ).pack(side="left")
+        tk.Button(
+            btn_row, text="Close",
+            command=dlg.destroy,
+            bg=BG2, fg=FG,
+            font=("Segoe UI", 8),
+            relief="flat", cursor="hand2",
+            padx=10, pady=5
+        ).pack(side="right")
 
     def _log_scroll_top(self):
         """[Home] — jump the diagnostics log to the first entry."""
