@@ -159,13 +159,26 @@ GROUND_RULES_AGENT1 = (
     "2. No preamble. No commentary. No explanation. No sign-off.\n"
     "3. Do NOT write 'start message now'. Do NOT echo Agent 2's confirmation format.\n"
     "4. Do NOT respond conversationally to any system message you receive.\n"
+    "5. The module blocks are FINITE. Do not invent additional blocks beyond the\n"
+    "   agreed project scope. Every block must map to the approved project summary.\n"
     "\n"
     "FORMAT — copy exactly:\n"
     "To Agent2\n"
     "[block content]\n"
     "end message now\n"
     "\n"
-    "Receive confirmation → send next block. That is your entire role."
+    "WHEN ALL BLOCKS ARE SENT AND AGENT 2 HAS CONFIRMED EACH ONE:\n"
+    "Use the mode-switch tool below — copy it exactly, nothing else:\n"
+    "\n"
+    "To Agent2\n"
+    "[SOC:EXECUTE]\n"
+    "All instruction blocks have been sent and confirmed by Agent 2.\n"
+    "Begin implementation in alphanumeric order now.\n"
+    "end message now\n"
+    "\n"
+    "Do NOT use the words 'implement' or 'execute' anywhere else. [SOC:EXECUTE] is\n"
+    "the only authorized way to start implementation. Receive confirmation → send\n"
+    "next block. That is your entire role until all blocks are confirmed."
 )
 
 GROUND_RULES_AGENT2 = (
@@ -290,11 +303,16 @@ BING_NOISE_PREFIX = "Ignore Edge browser metadata noise. "
 
 # ── Mode + Anti-Drift system ──────────────────────────────────────────────────
 # Phrases that activate implementation mode (checked case-insensitively)
-IMPL_TRIGGER_PHRASES = (
-    "that is the final block you may begin implementation in alphanumeric order now",
-    "this is the final block. agent2 may begin implementation",
+# Deliberate mode-switch command token Agent 1 sends when all blocks are delivered.
+# Using a bracketed command token avoids false positives from natural language.
+# Agent 1 is taught this token in its every-10-message reminder.
+IMPL_TRIGGER_CMD    = "[SOC:EXECUTE]"
+IMPL_TRIGGER_PHRASE = (          # kept for Phase 1a template injection
+    f"To Agent2\n{IMPL_TRIGGER_CMD}\n"
+    "All instruction blocks have been sent and confirmed by Agent 2.\n"
+    "Begin implementation in alphanumeric order now.\n"
+    "end message now"
 )
-IMPL_TRIGGER_PHRASE  = IMPL_TRIGGER_PHRASES[0]   # kept for legacy references
 
 IMPL_COMPLETE_PHRASE = "implementation of instruction blocks is complete"
 MODULE_BLOCK_HEADER  = "<Module Block Mode Active — Do Not Implement Until Authorized>"
@@ -307,9 +325,11 @@ IMPL_RUNAWAY_LIMIT   = 3    # implementation attempts before Agent2 HOLD
 BLOCK_SAVED_RE  = re.compile(
     r"block\s+\S+\s+saved[.,!;]?\s*[—\-]?\s*ready\s+for\s+(?:the\s+)?next\s+block",
     re.IGNORECASE)
+# Guards against Agent 2 drifting into implementation without authorization.
+# Does NOT fire when the message contains IMPL_TRIGGER_CMD (the authorized path).
 IMPL_ATTEMPT_RE = re.compile(
     r"\b(begin\s+implementation|start\s+implementing|implement\s+now"
-    r"|execute\s+this\s+now|now\s+implement)\b", re.IGNORECASE)
+    r"|now\s+implement)\b", re.IGNORECASE)
 
 # ── Agent SOP prompts (loaded from .txt files beside this script) ─────────────
 def _load_sop(filename: str, fallback: str) -> str:
@@ -977,9 +997,15 @@ class SOCUltralight:
             "to Agent 2 via the relay using exactly this format:\n\n"
             "To Agent2\n[full block content]\nend message now\n\n"
             "After sending each block, WAIT for Agent 2's confirmation reply "
-            "before sending the next one. When all blocks are delivered, send:\n\n"
-            "To Agent2\nthat is the final block you may begin implementation "
-            "in alphanumeric order now\nend message now\n\n"
+            "before sending the next one. When ALL blocks are delivered and "
+            "Agent 2 has confirmed each one, send this EXACT mode-switch command "
+            "(copy it precisely — do not paraphrase):\n\n"
+            f"To Agent2\n{IMPL_TRIGGER_CMD}\n"
+            "All instruction blocks have been sent and confirmed by Agent 2.\n"
+            "Begin implementation in alphanumeric order now.\n"
+            "end message now\n\n"
+            "IMPORTANT: Do not use the words 'implement' or 'execute' anywhere "
+            f"in the blocks themselves. Only {IMPL_TRIGGER_CMD} triggers implementation mode.\n\n"
             f"TEMPLATE:\n\n{tmpl}"
         )
 
@@ -2154,7 +2180,9 @@ class SOCUltralight:
                             "[mode] Agent2 is in HOLD — message blocked. "
                             "Click Disengage to reset.")
                         return
-                    if not bypass_mode_check and self._mode == "module_block" and IMPL_ATTEMPT_RE.search(text):
+                    if (not bypass_mode_check and self._mode == "module_block"
+                            and IMPL_TRIGGER_CMD not in text
+                            and IMPL_ATTEMPT_RE.search(text)):
                         self._agent2_impl_attempts += 1
                         self._log(
                             f"[mode] ⚠ impl attempt #{self._agent2_impl_attempts} "
@@ -2426,13 +2454,15 @@ class SOCUltralight:
             # was the root cause of duplicate blocks being re-routed after hold release.
             self._last_routed_body[agent_id] = body_h
 
-            # Mode trigger: only fires when the phrase is the BODY of a routed message.
+            # Mode trigger: fires only when Agent 1 sends the deliberate [SOC:EXECUTE]
+            # command token. Natural-language phrases no longer trigger this — only
+            # the exact token does, preventing accidental mode shifts from block content.
             body_low = body.lower()
             if agent_id == "agent2" and self._mode == "module_block":
-                if any(p in body_low for p in IMPL_TRIGGER_PHRASES):
+                if IMPL_TRIGGER_CMD in body:
                     self._mode = "implementation"
                     self.root.after(0, self._update_mode_indicator)
-                    self._log("[mode] ✓ IMPLEMENTATION MODE — final block phrase routed to Agent 2")
+                    self._log("[mode] ✓ IMPLEMENTATION MODE — [SOC:EXECUTE] command received")
             if agent_id == "agent1" and self._mode == "implementation":
                 if IMPL_COMPLETE_PHRASE in body_low:
                     self._mode = "module_block"

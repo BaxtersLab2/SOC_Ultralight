@@ -206,7 +206,7 @@ SOC reads `templates/GENERAL_MODULE_BLOCK_TEMPLATE.md` and sends it to Agent 1 a
 
 - Deliver each block in `To Agent2 / content / end message now` format.
 - Wait for Agent 2's confirmation before sending the next block.
-- Send the authorization phrase when all blocks are delivered.
+- When all blocks are confirmed, send the `[SOC:EXECUTE]` mode-switch command (exact format provided in the template).
 
 The button turns green when sent.
 
@@ -237,6 +237,26 @@ end message now
 SOC only routes a message **after the sentinel appears on screen**, preventing partial captures while text is still streaming.
 
 > OCR sometimes misreads `1` as `l`, `i`, or `|`. SOC automatically normalises these variants — `To Agentl` and `To Agent1` are treated identically.
+
+### Mode-Switch Command
+
+When all module blocks are delivered and confirmed, Agent 1 switches SOC to Implementation Mode by sending a deliberate command token — not a natural-language phrase. This prevents accidental mode shifts from block content that happens to mention implementation or execution.
+
+**Agent 1 sends exactly this when all blocks are done:**
+
+```
+To Agent2
+[SOC:EXECUTE]
+All instruction blocks have been sent and confirmed by Agent 2.
+Begin implementation in alphanumeric order now.
+end message now
+```
+
+SOC detects `[SOC:EXECUTE]` in the message body and flips to Implementation Mode before routing the message to Agent 2. No other phrase triggers this switch.
+
+**Agent 1 is reminded of this command every 10 messages** via the anti-drift reminder, along with a warning that the module blocks are finite — Agent 1 must not invent blocks beyond the approved project scope.
+
+> Do not use the words "implement" or "execute" anywhere inside module blocks. SOC guards against accidental implementation commands — any block body containing implementation keywords (without `[SOC:EXECUTE]`) is intercepted and blocked.
 
 ---
 
@@ -280,15 +300,17 @@ Once both SOPs are delivered and OCR is running:
 
 ### Ending the Block Phase
 
-When all blocks are sent, Agent 1 sends the implementation trigger phrase:
+When all blocks are sent and every confirmation has been received, Agent 1 sends the mode-switch command:
 
 ```
 To Agent2
-that is the final block you may begin implementation in alphanumeric order now
+[SOC:EXECUTE]
+All instruction blocks have been sent and confirmed by Agent 2.
+Begin implementation in alphanumeric order now.
 end message now
 ```
 
-SOC detects this phrase, switches to **IMPLEMENTATION MODE**, and routes the message to Agent 2.
+SOC detects `[SOC:EXECUTE]` in the body, switches to **IMPLEMENTATION MODE**, and routes the message to Agent 2. Only this exact token triggers the switch — no natural-language phrase does. This prevents block content that happens to mention execution or implementation from accidentally starting the build phase.
 
 ### Implementation Phase
 
