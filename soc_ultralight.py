@@ -355,6 +355,38 @@ AGENT2_SOP = _load_sop(
     "You are Agent2. Store every module block exactly as received. "
     "Do not implement until Agent1 sends the final block phrase.")
 
+# ── Claude project improvement prompt (Phase 1a, after brainstorm) ────────────
+# Copied to clipboard by the "📋 Improvement Prompt" button in Phase 1a.
+# User pastes this into their own Claude session, then appends Agent 1's summary.
+CLAUDE_IMPROVEMENT_PROMPT = """\
+You are a senior technical architect reviewing a project before implementation begins. \
+The summary below was produced by a design session and is about to become fixed \
+implementation instructions. Before it does, push it through four lenses and return \
+an improved version:
+
+1. STACK & ARCHITECTURE — Is anything here already dated or heading toward technical \
+debt? Flag it and recommend the cutting-edge alternative. Push toward bleeding-edge \
+where the project context supports it without adding unnecessary complexity.
+
+2. SECURITY-FIRST — Identify every surface that creates an attack vector. Redesign \
+or harden those points now. Security designed into the architecture costs a fraction \
+of security retrofitted after code exists.
+
+3. RAISE THE CEILING — What is the most ambitious realistic version of this project? \
+What one or two additions would make it genuinely impressive or differentiated without \
+blowing the scope? Name them explicitly.
+
+4. PRECISION — Tighten every ambiguous requirement. Anything an implementing agent \
+must guess at will drift into the wrong implementation. Eliminate the guesswork.
+
+Return the complete improved project summary with your changes integrated, followed \
+by a 'CHANGES' section: one line per change with the reason. Be direct and opinionated \
+— this is not a validation exercise. The goal is the best possible version of this \
+project before a single line of code is written.
+
+PROJECT SUMMARY TO IMPROVE:
+"""
+
 # ── Phase 2a Security Audit SOP template ──────────────────────────────────────
 # Slot tokens replaced at runtime: {workspace} {project} {git_log} {stack}
 PHASE2A_SOP_TEMPLATE = """
@@ -923,6 +955,25 @@ class SOCUltralight:
             relief="flat", cursor="hand2", pady=3, state="disabled")
         self._p1a_inject_btn.pack(fill="x", padx=12, pady=(4, 0))
 
+        # ── Step 3b: Claude improvement ───────────────────────────────
+        tk.Frame(p, bg="#333333", height=1).pack(fill="x", padx=12, pady=(6, 2))
+        tk.Label(p, text="3b. Improve summary with Claude (recommended)",
+                 bg=BG, fg=FG, font=("Segoe UI", 8, "bold"),
+                 anchor="w").pack(fill="x", padx=12, pady=(0, 2))
+        tk.Label(p,
+                 text="Paste Agent 1's summary into Claude via Agent 2's window.\n"
+                      "Claude returns an improved version directly to Agent 1.",
+                 bg=BG, fg="#888888", font=("Segoe UI", 7),
+                 anchor="w", wraplength=240, justify="left"
+                 ).pack(fill="x", padx=12)
+        tk.Button(
+            p, text="✨  Improve with Claude",
+            command=self._p1a_improve_with_claude,
+            bg="#1a2a1a", fg="#4ec9b0",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat", cursor="hand2", pady=3
+        ).pack(fill="x", padx=12, pady=(4, 0))
+
         self._p1a_sum_ready_btn = tk.Button(
             p, text="✓ Summary Ready",
             command=self._p1a_toggle_summary_ready,
@@ -1027,43 +1078,39 @@ class SOCUltralight:
 
     def _p1a_brainstorm(self):
         starter = (
-            "We are starting a structured project design session. Your job is to walk "
-            "me through each area below ONE AT A TIME — ask questions, record my answers, "
-            "and keep asking until each area is fully defined. Do not ask about all areas "
-            "at once. When every area is covered and I confirm I am satisfied, write a "
-            "complete PROJECT SUMMARY document containing all of the following sections:\n\n"
-            "1. PROJECT NAME — short name used in file naming and project tracking.\n\n"
-            "2. PURPOSE — what does this project do and why does it exist? "
-            "What problem does it solve?\n\n"
-            "3. CORE FEATURES — the major functional components the finished product "
-            "must have. One feature per line. Describe behaviour, not code.\n\n"
-            "4. TECHNICAL STACK — language, framework, key libraries, target platform(s), "
-            "build system. Be specific — include version numbers if relevant.\n\n"
-            "5. SECURITY REQUIREMENTS — this is mandatory, not optional. Cover:\n"
-            "   - Does the app require authentication? If yes, what model (API key, "
-            "OAuth, session, token)?\n"
-            "   - What external services or APIs does it connect to, and what credentials "
-            "are needed for each?\n"
-            "   - What data does it store or transmit? Is any of it sensitive "
-            "(user PII, financial, health, credentials)?\n"
-            "   - What are the main input surfaces (HTTP endpoints, CLI args, file "
-            "reads, IPC, WebSocket)? What validation is required at each?\n"
-            "   - What should happen on auth failure or invalid input?\n"
-            "   - Are there any compliance or privacy requirements?\n\n"
-            "6. FOLDER / WORKSPACE LAYOUT — the intended directory and "
-            "crate/package structure if known. If not known yet, flag it for "
-            "Module A of the block plan.\n\n"
+            "We are opening a project design session. The user will describe their idea "
+            "first. Your job:\n\n"
+            "1. Invite the user to describe what they want to build.\n"
+            "2. Listen to their description.\n"
+            "3. Identify which of the nine required areas below are still undefined, "
+            "unclear, or need more detail after hearing the description.\n"
+            "4. Ask targeted questions ONE AT A TIME — one gap, one question — until "
+            "every area is fully defined. Do not ask about multiple gaps at once.\n"
+            "5. When every area is covered and the user confirms they are satisfied, "
+            "write the complete PROJECT SUMMARY document.\n\n"
+            "THE NINE AREAS THAT MUST ALL BE DEFINED:\n\n"
+            "1. PROJECT NAME — short name for file naming and tracking.\n"
+            "2. PURPOSE — what it does, what problem it solves, why it exists.\n"
+            "3. CORE FEATURES — major functional components, one per line, "
+            "behaviour not code.\n"
+            "4. TECHNICAL STACK — language, framework, key libraries, target "
+            "platform(s), build system. Specific — version numbers where relevant.\n"
+            "5. SECURITY REQUIREMENTS (mandatory — never skip):\n"
+            "   - Authentication model (none / API key / OAuth / session token)\n"
+            "   - External services and what credentials each needs\n"
+            "   - Sensitive data handled (none / PII / financial / health / credentials)\n"
+            "   - Input surfaces and required validation at each\n"
+            "   - Behaviour on auth failure or invalid input\n"
+            "   - Compliance requirements (none / GDPR / HIPAA / other)\n"
+            "6. FOLDER / WORKSPACE LAYOUT — directory and package structure "
+            "if known; flag for Module A if not.\n"
             "7. EXTERNAL DEPENDENCIES & INTEGRATION POINTS — other apps, "
-            "services, hardware, or databases this project talks to. For each: "
-            "what interface is used and what data flows in each direction.\n\n"
-            "8. CONSTRAINTS AND DESIGN DECISIONS — anything the implementing agent "
-            "must not deviate from. Examples: target OS, no external APIs, "
-            "specific database choice, performance targets.\n\n"
-            "9. SAVE PATH FOR BLOCK FILES — where on this machine should module "
-            "block instruction files be saved during the build phase.\n\n"
-            "Begin with area 1. Ask me about it, then move to the next only when "
-            "that area is fully defined. I will tell you when I am ready for the "
-            "final summary document."
+            "services, or hardware; interface used; data flow in each direction.\n"
+            "8. CONSTRAINTS AND DESIGN DECISIONS — hard limits the implementing "
+            "agent must not deviate from.\n"
+            "9. SAVE PATH FOR BLOCK FILES — where on this machine instruction "
+            "block files will be saved.\n\n"
+            "Start now: ask the user to tell you about the project they want to build."
         )
         threading.Thread(
             target=lambda: self._inject_to_agent("agent1", starter),
@@ -1091,6 +1138,96 @@ class SOCUltralight:
             daemon=True).start()
         self._p1a_sum_ready_btn.config(fg=FG)
         self._log(f"[priming] project summary injected to Agent 1 ({len(content)} chars)")
+
+    def _p1a_improve_with_claude(self):
+        """Open the Claude improvement dialog.
+        User pastes Agent 1's completed summary; SOC prepends the improvement
+        prompt + routing-format instruction and injects into Agent 2 (Claude).
+        Claude responds 'To Agent1 / improved summary / end message now' and
+        SOC routes it back to Agent 1 automatically via the normal OCR loop."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Improve Summary with Claude")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="✨  Improve with Claude",
+                 bg=BG, fg="#4ec9b0", font=("Segoe UI", 11, "bold"),
+                 pady=8).pack(fill="x", padx=16)
+
+        tk.Label(dlg,
+                 text="Paste Agent 1's completed project summary below.\n"
+                      "SOC will send it to Claude (Agent 2 window) with the\n"
+                      "improvement prompt. Claude's improved version routes\n"
+                      "back to Agent 1 automatically.",
+                 bg=BG, fg=FG, font=("Segoe UI", 8), justify="left",
+                 wraplength=360).pack(anchor="w", padx=16)
+
+        txt = tk.Text(dlg, width=52, height=16,
+                      bg=BG2, fg=FG, insertbackground=FG,
+                      font=("Consolas", 8), relief="flat",
+                      padx=6, pady=6, wrap="word")
+        txt.pack(fill="both", padx=16, pady=(6, 0))
+        txt.insert("1.0", "(paste Agent 1's project summary here)")
+        txt.bind("<FocusIn>", lambda e: txt.delete("1.0", "end")
+                 if txt.get("1.0", "end").strip().startswith("(paste") else None)
+        txt.focus_set()
+
+        status_lbl = tk.Label(dlg, text="", bg=BG, fg=GREEN,
+                              font=("Segoe UI", 8, "italic"))
+        status_lbl.pack(padx=16, pady=(4, 0))
+
+        def _send():
+            summary = txt.get("1.0", "end").strip()
+            if not summary or summary.startswith("(paste"):
+                status_lbl.config(
+                    text="Paste Agent 1's summary first.", fg=ORANGE)
+                return
+            if not self.agents["agent2"].hwnd:
+                status_lbl.config(
+                    text="Agent 2 window not set — click Set Win first.", fg=ORANGE)
+                return
+
+            # Full prompt: improvement brief + routing format instruction + summary
+            full_prompt = (
+                CLAUDE_IMPROVEMENT_PROMPT
+                + summary
+                + "\n\n---\n"
+                "Respond in EXACTLY this format — no text before or after:\n\n"
+                "To Agent1\n"
+                "[full improved project summary]\n\n"
+                "CHANGES:\n"
+                "- [change 1]: [reason]\n"
+                "- [change 2]: [reason]\n"
+                "end message now"
+            )
+            status_lbl.config(
+                text="Sending to Claude... OCR will route reply to Agent 1.", fg=GREEN)
+            self._log("[priming] improvement prompt sent to Agent 2 (Claude)")
+            threading.Thread(
+                target=lambda: self._inject_to_agent(
+                    "agent2", full_prompt, bypass_mode_check=True),
+                daemon=True).start()
+            dlg.after(1500, dlg.destroy)
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(fill="x", padx=16, pady=(8, 12))
+        tk.Button(
+            btn_row, text="Send to Claude",
+            command=_send,
+            bg="#1a2a1a", fg="#4ec9b0",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2",
+            padx=12, pady=5
+        ).pack(side="left")
+        tk.Button(
+            btn_row, text="Cancel",
+            command=dlg.destroy,
+            bg=BG2, fg=FG,
+            font=("Segoe UI", 8),
+            relief="flat", cursor="hand2",
+            padx=10, pady=5
+        ).pack(side="right")
 
     def _p1a_toggle_summary_ready(self):
         self._p1a_summary_sent = not self._p1a_summary_sent
