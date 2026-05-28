@@ -73,6 +73,11 @@ _BODY_LONG = "\n".join(
      for i in range(1, 36)]
 ) + "\nEnd of long body."
 
+_BODY_XLARGE = "\n".join(
+    [f"Line {i:03d}: sphinx of black quartz judge my vow at sequence position {i}."
+     for i in range(1, 71)]
+) + "\nEnd of extra-large body."
+
 TESTS = {
     "short": {
         "label":      "SHORT  (1 frame, no scroll)",
@@ -90,6 +95,12 @@ TESTS = {
         "label":      "LONG  (scroll accumulation required)",
         "body":       _BODY_LONG,
         "key_phrases": ["Line 001:", "Line 018:", "Line 035:", "End of long body"],
+        "expect_scroll": True,
+    },
+    "xlarge": {
+        "label":      "XLARGE  (~70 lines, heavy scroll accumulation)",
+        "body":       _BODY_XLARGE,
+        "key_phrases": ["Line 001:", "Line 035:", "Line 070:", "End of extra-large body"],
         "expect_scroll": True,
     },
 }
@@ -161,12 +172,16 @@ def _merge(base, new):
 # ── Button injection helpers ──────────────────────────────────────────────────
 
 def _find_button(template_name, threshold=0.75):
-    """Locate a button on screen via template matching. Returns (cx,cy) or None."""
+    """Locate a button on screen via template matching. Returns (cx,cy) in Windows coords or None."""
     if not _CV2:
         return None
     path = os.path.join(_BTN_DIR, template_name)
     if not os.path.exists(path):
         return None
+    import ctypes
+    _u32 = ctypes.windll.user32
+    vx = _u32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+    vy = _u32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
     screen = np.array(ImageGrab.grab(all_screens=True))
     screen_bgr = cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
     tmpl = cv2.imread(path)
@@ -176,17 +191,25 @@ def _find_button(template_name, threshold=0.75):
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
     if max_val < threshold:
         return None
-    cx = max_loc[0] + tmpl.shape[1] // 2
-    cy = max_loc[1] + tmpl.shape[0] // 2
+    # PIL all_screens pixel → Windows screen coord
+    cx = max_loc[0] + tmpl.shape[1] // 2 + vx
+    cy = max_loc[1] + tmpl.shape[0] // 2 + vy
     return (cx, cy)
 
 def _inject_to_agent1(text):
     """Paste text into Agent 1's input field and click Send. Returns True on success."""
     import pyperclip
-    input_pos = _find_button("agent1_input.png")
-    send_pos  = _find_button("agent1_send.png")
-    if not input_pos or not send_pos:
+    # Try preferred template first, then legacy fallback
+    input_pos = _find_button("agent1_input.png") or _find_button("agent1_chat_input_field.png")
+    # Send button: use slightly lower threshold since button appearance varies
+    send_pos  = _find_button("agent1_send.png", threshold=0.55)
+    if not input_pos:
+        print("  [inject] agent1 input field not found")
         return False
+    if not send_pos:
+        print("  [inject] agent1 send button not found")
+        return False
+    print(f"  [inject] input=({input_pos[0]},{input_pos[1]})  send=({send_pos[0]},{send_pos[1]})")
     pyperclip.copy(text)
     pyautogui.click(*input_pos)
     time.sleep(0.4)
@@ -220,6 +243,13 @@ class Stage:
     def skipped(self, reason=""):
         self.status = "SKIP"
         self.note   = reason
+
+_TIMEOUTS = {
+    "short":  dict(timeout_a1_respond=90,  timeout_trigger=60,  timeout_sentinel=90,  timeout_a2=30),
+    "medium": dict(timeout_a1_respond=120, timeout_trigger=90,  timeout_sentinel=120, timeout_a2=45),
+    "long":   dict(timeout_a1_respond=180, timeout_trigger=120, timeout_sentinel=150, timeout_a2=60),
+    "xlarge": dict(timeout_a1_respond=240, timeout_trigger=150, timeout_sentinel=180, timeout_a2=60),
+}
 
 def _run_pipeline(test_name, cfg, inject_fn=None,
                   src="agent1", dst="agent2",
@@ -549,7 +579,8 @@ def cmd_watch(args):
     print(f"{'='*68}\n")
     print("  Press Ctrl+C to abort.\n")
 
-    stages = _run_pipeline(test, cfg, inject_fn=None, src=src, dst=dst)
+    stages = _run_pipeline(test, cfg, inject_fn=None, src=src, dst=dst,
+                           **_TIMEOUTS.get(test, {}))
     _print_report(stages, test, run_ts)
 
 def cmd_run(args):
@@ -577,7 +608,8 @@ def cmd_run(args):
 
     stages = _run_pipeline(test, cfg,
                            inject_fn=_inject_to_agent1,
-                           src=src, dst=dst)
+                           src=src, dst=dst,
+                           **_TIMEOUTS.get(test, {}))
     _print_report(stages, test, run_ts)
 
 def cmd_list(_):
