@@ -355,6 +355,110 @@ AGENT2_SOP = _load_sop(
     "You are Agent2. Store every module block exactly as received. "
     "Do not implement until Agent1 sends the final block phrase.")
 
+# ── Phase 2a Security Audit SOP template ──────────────────────────────────────
+# Slot tokens replaced at runtime: {workspace} {project} {git_log} {stack}
+PHASE2A_SOP_TEMPLATE = """
+=== PHASE 2a: SECURITY AUDIT ===
+
+You are acting as a Security Auditor for a locally-built project that has not yet
+been pushed to any remote repository. Your job is to review the source code for
+security issues, prioritize findings, and work through them with the user until
+the app is clean enough to proceed to functional testing (Phase 3).
+
+PROJECT: {project}
+WORKSPACE: {workspace}
+
+RECENT GIT LOG:
+{git_log}
+
+TECH STACK / NOTES:
+{stack}
+
+---
+
+## YOUR AUDIT CHECKLIST
+
+Work through every item below. For each finding, state:
+- SEVERITY: Critical / High / Medium / Low
+- LOCATION: file path and line number if applicable
+- ISSUE: what the problem is
+- FIX: what specifically needs to change
+
+### 1. Hardcoded Secrets
+Search the codebase for literal API keys, tokens, passwords, connection strings,
+and private keys embedded in source files, config files, or test fixtures.
+Patterns to grep: common key prefixes (sk-, pk-, Bearer, password=, secret=,
+token=, api_key=, Authorization:), long random-looking hex/base64 strings.
+Any found = Critical severity.
+
+### 2. Personal Information & Machine Paths
+Search for real names, email addresses, phone numbers, and absolute file system
+paths that contain usernames (C:\\Users\\..., /home/username/, /Users/name/).
+Any found in committed or committable source = High severity.
+
+### 3. .gitignore and .env hygiene
+- Verify .gitignore exists in the project root.
+- Verify .env (if present) is listed in .gitignore.
+- Verify .env.example exists with placeholder values only.
+- If .gitignore is missing or incomplete = High severity.
+
+### 4. Input Validation
+List every external input surface in the project (HTTP endpoints, CLI arguments,
+file reads, IPC, WebSocket, form fields). For each one, confirm validation and
+sanitization is present before the data is used. Missing validation on an
+external surface = High severity.
+
+### 5. SQL and Query Injection
+Verify all database queries use parameterized statements or an ORM with no raw
+string interpolation. Any string-interpolated query = Critical severity.
+
+### 6. Authentication & Authorization
+Review any auth implementation. Check: tokens/sessions are validated before
+protected routes are accessed; passwords are hashed (bcrypt/argon2/scrypt),
+never stored in plain text; no auth bypass via parameter manipulation.
+
+### 7. Error Handling & Information Leakage
+Confirm error responses do not expose stack traces, internal paths, DB schemas,
+or secret values to end users. Debug modes must be off in production config.
+
+### 8. Dependency Audit
+List the declared dependencies. Flag any that are known to have security
+advisories. If a package manager lock file exists, note whether it is committed.
+
+### 9. Dangerous Function Use
+Search for use of eval(), exec(), os.system(), subprocess with shell=True
+(without sanitized input), pickle.loads() on untrusted data, or equivalent
+in the project's language. Each occurrence with untrusted input = High severity.
+
+### 10. Secrets in Git History
+If a .git directory exists, check recent commit diffs for any secrets that may
+have been added and removed (they remain in history). Flag if found.
+
+---
+
+## OUTPUT FORMAT
+
+After your audit, present:
+
+CRITICAL FINDINGS (fix before any push):
+[list or "None"]
+
+HIGH FINDINGS (fix before app is considered complete):
+[list or "None"]
+
+MEDIUM FINDINGS (recommended before release):
+[list or "None"]
+
+LOW FINDINGS (best practice improvements):
+[list or "None"]
+
+Then work through Critical and High findings with the user, one at a time,
+until all are resolved. Re-check each fix before marking it resolved.
+
+When all Critical and High findings are resolved, state:
+"Phase 2a security audit complete. No Critical or High findings remain."
+"""
+
 # ── Phase 3 Debug SOP template ────────────────────────────────────────────────
 # Slot tokens replaced at runtime: {workspace} {project} {git_log} {user_report}
 PHASE3_SOP_TEMPLATE = """
@@ -923,10 +1027,43 @@ class SOCUltralight:
 
     def _p1a_brainstorm(self):
         starter = (
-            "I want to describe a software project I'm planning to build. "
-            "Please help me think through the scope, features, technical stack, "
-            "and any constraints, then produce a complete project summary when we "
-            "are satisfied with the design. I'll tell you when to write the summary."
+            "We are starting a structured project design session. Your job is to walk "
+            "me through each area below ONE AT A TIME — ask questions, record my answers, "
+            "and keep asking until each area is fully defined. Do not ask about all areas "
+            "at once. When every area is covered and I confirm I am satisfied, write a "
+            "complete PROJECT SUMMARY document containing all of the following sections:\n\n"
+            "1. PROJECT NAME — short name used in file naming and project tracking.\n\n"
+            "2. PURPOSE — what does this project do and why does it exist? "
+            "What problem does it solve?\n\n"
+            "3. CORE FEATURES — the major functional components the finished product "
+            "must have. One feature per line. Describe behaviour, not code.\n\n"
+            "4. TECHNICAL STACK — language, framework, key libraries, target platform(s), "
+            "build system. Be specific — include version numbers if relevant.\n\n"
+            "5. SECURITY REQUIREMENTS — this is mandatory, not optional. Cover:\n"
+            "   - Does the app require authentication? If yes, what model (API key, "
+            "OAuth, session, token)?\n"
+            "   - What external services or APIs does it connect to, and what credentials "
+            "are needed for each?\n"
+            "   - What data does it store or transmit? Is any of it sensitive "
+            "(user PII, financial, health, credentials)?\n"
+            "   - What are the main input surfaces (HTTP endpoints, CLI args, file "
+            "reads, IPC, WebSocket)? What validation is required at each?\n"
+            "   - What should happen on auth failure or invalid input?\n"
+            "   - Are there any compliance or privacy requirements?\n\n"
+            "6. FOLDER / WORKSPACE LAYOUT — the intended directory and "
+            "crate/package structure if known. If not known yet, flag it for "
+            "Module A of the block plan.\n\n"
+            "7. EXTERNAL DEPENDENCIES & INTEGRATION POINTS — other apps, "
+            "services, hardware, or databases this project talks to. For each: "
+            "what interface is used and what data flows in each direction.\n\n"
+            "8. CONSTRAINTS AND DESIGN DECISIONS — anything the implementing agent "
+            "must not deviate from. Examples: target OS, no external APIs, "
+            "specific database choice, performance targets.\n\n"
+            "9. SAVE PATH FOR BLOCK FILES — where on this machine should module "
+            "block instruction files be saved during the build phase.\n\n"
+            "Begin with area 1. Ask me about it, then move to the next only when "
+            "that area is fully defined. I will tell you when I am ready for the "
+            "final summary document."
         )
         threading.Thread(
             target=lambda: self._inject_to_agent("agent1", starter),
@@ -1189,8 +1326,21 @@ class SOCUltralight:
 
         self._build_autoclick_panel(p)
 
-        # ── Phase 3 separator + button ────────────────────────────────────────
+        # ── Phase 2a + Phase 3 buttons ─────────────────────────────────────────
         tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=(8, 0))
+        p2a_row = tk.Frame(p, bg=BG, pady=4)
+        p2a_row.pack(fill="x", padx=12)
+        tk.Button(
+            p2a_row,
+            text="🛡  Phase 2a: Security Audit",
+            command=self._launch_phase2a,
+            bg="#1a2a3a", fg="#4ec9b0",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2",
+            padx=10, pady=5, anchor="center"
+        ).pack(fill="x")
+
+        tk.Frame(p, bg=BG2, height=1).pack(fill="x", padx=10, pady=(4, 0))
         p3_row = tk.Frame(p, bg=BG, pady=4)
         p3_row.pack(fill="x", padx=12)
         tk.Button(
@@ -3967,6 +4117,107 @@ class SOCUltralight:
             daemon=True).start()
         self._log("[mode] Agent2 SOP sent — 25s OCR grace active")
         self._set_status("Agent2 SOP sent")
+
+    def _launch_phase2a(self):
+        """Open Phase 2a security audit dialog — collects stack notes, assembles
+        the security audit SOP with project context, and writes it to
+        staging/phase2a_security_audit.md for the user to drag into Claude."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Phase 2a — Security Audit")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Phase 2a: Security Audit",
+                 bg=BG, fg="#4ec9b0", font=("Segoe UI", 11, "bold"),
+                 pady=8).pack(fill="x", padx=16)
+
+        tk.Label(dlg,
+                 text="⚠  Use a SEPARATE VS Code instance for this session.\n"
+                      "Do NOT use the Agent 2 window — SOC watches it.",
+                 bg="#1a2a1a", fg="#4ec9b0",
+                 font=("Segoe UI", 8, "bold"), justify="left",
+                 wraplength=360, pady=6, padx=8).pack(fill="x", padx=16, pady=(0, 6))
+
+        tk.Label(dlg,
+                 text="Optional: note the tech stack or any areas of concern.\n"
+                      "Leave blank to run a full general audit.",
+                 bg=BG, fg=FG, font=("Segoe UI", 8), justify="left",
+                 wraplength=360).pack(anchor="w", padx=16)
+
+        txt = tk.Text(dlg, width=48, height=6,
+                      bg=BG2, fg=FG, insertbackground=FG,
+                      font=("Consolas", 9), relief="flat",
+                      padx=6, pady=6, wrap="word")
+        txt.pack(fill="both", padx=16, pady=(6, 0))
+        txt.insert("1.0", "Stack: \nAreas of concern: ")
+        txt.focus_set()
+
+        status_lbl = tk.Label(dlg, text="", bg=BG, fg=GREEN,
+                              font=("Segoe UI", 8, "italic"))
+        status_lbl.pack(padx=16, pady=(4, 0))
+
+        def _prepare():
+            stack_notes = txt.get("1.0", "end").strip()
+            workspace = os.path.dirname(os.path.abspath(__file__))
+            project   = self._project_name_var.get().strip() or "(unnamed)"
+            try:
+                import subprocess
+                git_log = subprocess.check_output(
+                    ["git", "-C", workspace, "log", "--oneline", "-20"],
+                    stderr=subprocess.DEVNULL, text=True).strip()
+            except Exception:
+                git_log = "(git log unavailable)"
+
+            sop = PHASE2A_SOP_TEMPLATE.format(
+                workspace=workspace,
+                project=project,
+                git_log=git_log,
+                stack=stack_notes or "(not specified — run general audit)")
+
+            soc_dir     = os.path.dirname(os.path.abspath(__file__))
+            staging_dir = os.path.join(soc_dir, "staging")
+            os.makedirs(staging_dir, exist_ok=True)
+            sop_path = os.path.join(staging_dir, "phase2a_security_audit.md")
+            try:
+                with open(sop_path, "w", encoding="utf-8") as f:
+                    f.write(sop)
+            except Exception as e:
+                status_lbl.config(text=f"Error writing file: {e}", fg=RED)
+                return
+
+            try:
+                import subprocess
+                subprocess.Popen(["code", sop_path], shell=True)
+            except Exception:
+                pass
+
+            short = sop_path.replace(os.path.expanduser("~"), "~")
+            status_lbl.config(
+                text=f"Saved: {short}\n"
+                     "Open a NEW VS Code window (not Agent 2's).\n"
+                     "Drag this file into Claude's chat to begin the audit.",
+                fg=GREEN)
+            self._log(f"[phase2a] security audit SOP written -> {sop_path}")
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(fill="x", padx=16, pady=(8, 12))
+        tk.Button(
+            btn_row, text="Prepare Audit File",
+            command=_prepare,
+            bg="#1a2a3a", fg="#4ec9b0",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2",
+            padx=12, pady=5
+        ).pack(side="left")
+        tk.Button(
+            btn_row, text="Close",
+            command=dlg.destroy,
+            bg=BG2, fg=FG,
+            font=("Segoe UI", 8),
+            relief="flat", cursor="hand2",
+            padx=10, pady=5
+        ).pack(side="right")
 
     def _launch_phase3(self):
         """Open Phase 3 debug dialog — collects user's issue list, assembles the
