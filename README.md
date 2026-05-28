@@ -75,9 +75,9 @@ Brainstorm with Agent 1 or load an existing project summary. Optionally, run the
 SOC takes over. Agent 1 writes numbered module instruction blocks and sends them one at a time. SOC routes each block to Agent 2 (and Agent 3 if present) automatically. Agents confirm receipt. Once all blocks are delivered, Agent 1 sends the authorization phrase and implementers execute in alphanumeric order.
 
 **Phase 3 — Debug** *(optional, requires Claude session)*
-Click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide. Describe the issues you see. SOC assembles a debug SOP — project context, git log, your issue list — and saves it to `staging/phase3_debug_sop.md`. Drag the file into Claude's chat to begin the debug session. Claude and you ping-pong through the issue list until every bug is resolved.
+Click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide. Describe the issues you see. SOC assembles a debug SOP — project context, git log, your issue list — and saves it to `staging/phase3_debug_sop.md`. Open a **separate, second VS Code instance** (not Agent 2's calibrated window) and drag the file into Claude's chat there to begin. Claude and you ping-pong through the issue list until every bug is resolved.
 
-> Phase 3 is quarantined from Agents 1 and 2 until you deliberately start it. Agents only see content injected into their chat windows — they never browse your file system.
+> **Critical:** Do not run Phase 3 inside Agent 2's VS Code window. SOC is watching that window via OCR — Claude's replies would be read as agent messages and routed, causing chaos. Use a second, uncalibrated VS Code window for Phase 3.
 
 ---
 
@@ -317,6 +317,22 @@ SOC detects this phrase and switches back to **MODULE BLOCK MODE**.
 
 When implementation is done (or when you hit a wall mid-build), click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide.
 
+### ⚠ Use a separate VS Code instance
+
+**Do not run Phase 3 inside Agent 2's VS Code window.**
+
+SOC's OCR is actively watching that window. If Claude responds there, SOC reads the replies as agent protocol messages and routes them — sending Claude's debug output to Agent 1 or Agent 2 as if it were a workflow instruction.
+
+Open a **second, fresh VS Code window** (File → New Window, or `code` in a new terminal) and run Phase 3 there. That window is not calibrated, not watched, and completely isolated from the SOC routing loop.
+
+```
+SOC watches:                       Phase 3 goes here:
+┌──────────────────────┐           ┌──────────────────────┐
+│ Agent 2 (VS Code)    │  ← OCR   │ Claude (VS Code #2)  │  ← NOT watched
+│ Implementer window   │           │ Debug session only    │
+└──────────────────────┘           └──────────────────────┘
+```
+
 ### What it does
 
 1. A dialog opens. Type a numbered list of every bug, broken feature, or unexpected behaviour you want fixed.
@@ -325,11 +341,11 @@ When implementation is done (or when you hit a wall mid-build), click **🔬 Pha
    - Your workspace path and project name
    - The last 20 git commits
    - Your issue list, numbered and formatted for action
-4. The SOP is saved to `staging/phase3_debug_sop.md` and opened in VS Code automatically.
+4. The SOP is saved to `staging/phase3_debug_sop.md`.
 
 ### Running the debug session
 
-Drag `phase3_debug_sop.md` from the VS Code file explorer into Claude's chat input field (or paste its contents). Claude reads the context and begins working through the issue list.
+Switch to your **second VS Code window**. Drag `phase3_debug_sop.md` from the file explorer into Claude's chat input (or paste its contents). Claude reads the full project context and begins working through the issue list.
 
 The session is a **ping-pong loop**:
 
@@ -341,7 +357,7 @@ You (report issues)  →  Claude (diagnoses, fixes, asks questions)
 
 Repeat until all items on your list are resolved. Claude carries full project context across the session — it can read files, run the test suite, check git history, and propose targeted fixes without you needing to re-explain the codebase.
 
-> **Note:** Phase 3 has limitations. It works best for bugs that are isolated to specific files or clear logic errors. For large architectural changes, go back to Phase 1a, refine the project summary, and rebuild the affected modules through Phase 2.
+> **Note:** Phase 3 works best for bugs isolated to specific files or clear logic errors. For large architectural changes, go back to Phase 1a, refine the project summary, and rebuild the affected modules through Phase 2.
 
 ### Quarantine
 

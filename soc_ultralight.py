@@ -3945,10 +3945,16 @@ class SOCUltralight:
                  pady=8).pack(fill="x", padx=16)
 
         tk.Label(dlg,
+                 text="⚠  Use a SEPARATE VS Code instance for this session.\n"
+                      "Do NOT use the Agent 2 window — SOC watches it and\n"
+                      "will try to route Claude's replies as agent messages.",
+                 bg="#3a1a1a", fg="#f48771",
+                 font=("Segoe UI", 8, "bold"), justify="left",
+                 wraplength=360, pady=6, padx=8).pack(fill="x", padx=16, pady=(0, 6))
+
+        tk.Label(dlg,
                  text="Describe what isn't working. List each issue separately\n"
-                      "so Claude can tackle them one at a time.\n"
-                      "The SOP is saved outside your workspace until you drag\n"
-                      "it into Claude's chat — agents won't see it early.",
+                      "so Claude can tackle them one at a time.",
                  bg=BG, fg=FG, font=("Segoe UI", 8), justify="left",
                  wraplength=360).pack(anchor="w", padx=16)
 
@@ -4013,11 +4019,11 @@ class SOCUltralight:
 
             short = sop_path.replace(os.path.expanduser("~"), "~")
             status_lbl.config(
-                text=f"Ready: {short}\n"
-                     "Drag it into Claude's chat, or type:\n"
-                     "Read the phase3 debug SOP and begin.",
+                text=f"Saved: {short}\n"
+                     "Open a NEW VS Code window (not Agent 2's).\n"
+                     "Drag this file into Claude's chat there to begin.",
                 fg=GREEN)
-            self._log(f"[phase3] debug SOP staged (outside workspace) → {sop_path}")
+            self._log(f"[phase3] debug SOP written → {sop_path}")
 
         btn_row = tk.Frame(dlg, bg=BG)
         btn_row.pack(fill="x", padx=16, pady=(8, 12))
