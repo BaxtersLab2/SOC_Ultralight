@@ -1,6 +1,6 @@
 # SOC Ultralight — 3-Agent App-Building Framework
 
-> Describe what you want to build. SOC Ultralight guides a team of three AI agents — planner, implementer, and debugger — from idea to finished application. No API keys. No cloud. Runs entirely on your local machine using the free tiers of Bing Copilot and Claude Code.
+> Describe what you want to build. SOC Ultralight guides a team of AI agents — planner, implementer, and debugger — from idea to finished application. Runs entirely on your local machine. No API keys. No cloud. Works with 2 or 3 agents using any capable LLM in any chat window.
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
@@ -23,16 +23,36 @@ That goal is reachable today for well-scoped projects when the prompt is thoroug
 
 ## What It Does
 
-SOC Ultralight (Screen OCR Controller) is a lightweight Windows widget that orchestrates a team of three AI agents across your screen. It watches agent chat windows via OCR, intercepts protocol messages, and routes them automatically — no API keys, no cloud bridge, no code.
+SOC Ultralight (Screen OCR Controller) is a lightweight Windows widget that orchestrates a team of AI agents across your screen. It watches agent chat windows via OCR, intercepts protocol messages, and routes them automatically — no API keys, no cloud bridge, no code.
 
-### The Agent Team
+### Configurations
 
-| Agent | Role | Powered by |
-|---|---|---|
-| **Agent 1** | Architect / Planner — refines the project description, designs the module structure, writes numbered instruction blocks, and delivers them one at a time | Bing Copilot (Edge) |
-| **Agent 2** | Implementer — receives each block, stores it, confirms receipt, then implements all blocks in order when authorized | Claude Code (VS Code) |
-| **Agent 3** *(optional)* | Second implementer for parallel workstreams or large projects | Claude Code (second VS Code) |
-| **Claude** *(your session)* | Used at two key moments: polishing the project summary before it reaches Agent 1, and driving the Phase 3 debug loop | Claude Code CLI or claude.ai |
+SOC works in **2-agent mode** or **3-agent mode**. The 2-agent setup is the core workflow and is fully self-contained — no Claude session required.
+
+**2-Agent (standard)**
+```
+Agent 1 (Planner)  ←→  SOC Ultralight  ←→  Agent 2 (Implementer)
+```
+Agent 1 designs the project and delivers module blocks one at a time. Agent 2 stores and implements them. SOC routes everything automatically. This mode works entirely without a Claude session and produces a finished application from a well-scoped project description.
+
+**3-Agent (extended)**
+```
+Agent 1 (Planner)  ←→  SOC  ←→  Agent 2 (Implementer A)
+                                       ↕
+                                  Agent 3 (Implementer B)
+```
+A second implementer handles parallel workstreams, a different tech stack layer, or a specialist subsystem. Each agent wears whatever role the SOP assigns it — any capable LLM in any chat window can fill any slot.
+
+### The Agent Slots
+
+| Slot | Role | Suggested model | Notes |
+|---|---|---|---|
+| **Agent 1** | Architect / Planner | Bing Copilot, GPT-4.5 | Designs project, writes and delivers module blocks |
+| **Agent 2** | Primary Implementer | Claude Code (VS Code) | Receives blocks, stores, implements in order |
+| **Agent 3** *(optional)* | Second Implementer | Claude Code, GPT-4.5, any capable LLM | Same SOP as Agent 2 — any agent that can follow the protocol works here |
+| **Your Claude session** *(optional)* | Summary polish + Phase 3 debug | Claude Code CLI or claude.ai | Used before Phase 2 and after — not required for the build itself |
+
+> **The SOP is the role.** Each agent receives a Standard Operating Procedure that defines its behaviour precisely. Any sufficiently capable LLM that can follow structured instructions can fill any slot. The framework is not tied to specific products.
 
 ### The Guided Path
 
@@ -42,19 +62,19 @@ SOC guides you from idea to finished app through four phases:
 Phase 1   →   Phase 1a   →   Phase 2   →   Phase 3
 Calibrate     Define &        Automated     Automated
 windows       refine          routing &     debug loop
-              project         implement     with Claude
+              project         implement     (optional)
 ```
 
 **Phase 1 — Calibrate**
 Set window handles, auto-locate input fields and Send buttons via template matching, draw OCR regions. One-time setup, saved automatically.
 
 **Phase 1a — Define the Project**
-Brainstorm with Agent 1 or load an existing project summary. Claude reviews and improves the summary — tightening ambiguous requirements, flagging gaps, and making it precise enough for Agent 1 to chunk reliably. When the summary is approved, SOC sends it to Agent 1 with the module block template and routing protocol.
+Brainstorm with Agent 1 or load an existing project summary. Optionally, run the summary through Claude first — Claude tightens ambiguous requirements, flags gaps, and makes it precise enough for Agent 1 to chunk reliably. When the summary is approved, SOC sends it to Agent 1 with the module block template and routing protocol. *(Claude is helpful here but not required — a well-written summary works directly.)*
 
 **Phase 2 — Build**
-SOC takes over. Agent 1 writes numbered module instruction blocks and sends them one at a time. SOC routes each block to Agent 2 automatically. Agent 2 confirms receipt and replies. Once all blocks are delivered, Agent 1 sends the authorization phrase and Agent 2 implements everything in alphanumeric order.
+SOC takes over. Agent 1 writes numbered module instruction blocks and sends them one at a time. SOC routes each block to Agent 2 (and Agent 3 if present) automatically. Agents confirm receipt. Once all blocks are delivered, Agent 1 sends the authorization phrase and implementers execute in alphanumeric order.
 
-**Phase 3 — Debug**
+**Phase 3 — Debug** *(optional, requires Claude session)*
 Click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide. Describe the issues you see. SOC assembles a debug SOP — project context, git log, your issue list — and saves it to `staging/phase3_debug_sop.md`. Drag the file into Claude's chat to begin the debug session. Claude and you ping-pong through the issue list until every bug is resolved.
 
 > Phase 3 is quarantined from Agents 1 and 2 until you deliberately start it. Agents only see content injected into their chat windows — they never browse your file system.
