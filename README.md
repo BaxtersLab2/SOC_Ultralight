@@ -1,6 +1,6 @@
-# SOC Ultralight — Agent Message Router
+# SOC Ultralight — 3-Agent App-Building Framework
 
-> A lightweight Windows desktop widget that silently routes messages between AI chat agents using OCR and clipboard automation. No API keys. No cloud. Runs entirely on your local machine.
+> Describe what you want to build. SOC Ultralight guides a team of three AI agents — planner, implementer, and debugger — from idea to finished application. No API keys. No cloud. Runs entirely on your local machine using the free tiers of Bing Copilot and Claude Code.
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
@@ -13,16 +13,66 @@
 
 ---
 
+## The Vision
+
+The long-term goal of SOC Ultralight is a **single prompt to a finished project** — write a detailed description of what you want to build (5+ pages covering every feature, data model, edge case, and integration), hand it to the 3-agent team, and receive a complete, tested, working application.
+
+That goal is reachable today for well-scoped projects when the prompt is thorough enough. For larger or less-defined projects, the guided phase workflow below covers every step, handles scope ambiguity, and includes automated debugging at the end.
+
+---
+
 ## What It Does
 
-SOC Ultralight (Screen OCR Controller) sits in the corner of your screen and watches your AI chat windows. When one agent writes a protocol message, SOC reads it via OCR, extracts the content, and pastes it directly into the destination agent's input field — then clicks Send automatically.
+SOC Ultralight (Screen OCR Controller) is a lightweight Windows widget that orchestrates a team of three AI agents across your screen. It watches agent chat windows via OCR, intercepts protocol messages, and routes them automatically — no API keys, no cloud bridge, no code.
 
-The primary use case is a two-agent module block workflow:
+### The Agent Team
 
-- **Agent 1** (Bing Copilot in Edge) — Architect/Planner. Designs the project, writes module instruction blocks, and sends them one at a time to Agent 2.
-- **Agent 2** (Claude Code in VS Code) — Implementer. Receives and stores each block, confirms receipt, then implements all blocks when authorized.
+| Agent | Role | Powered by |
+|---|---|---|
+| **Agent 1** | Architect / Planner — refines the project description, designs the module structure, writes numbered instruction blocks, and delivers them one at a time | Bing Copilot (Edge) |
+| **Agent 2** | Implementer — receives each block, stores it, confirms receipt, then implements all blocks in order when authorized | Claude Code (VS Code) |
+| **Agent 3** *(optional)* | Second implementer for parallel workstreams or large projects | Claude Code (second VS Code) |
+| **Claude** *(your session)* | Used at two key moments: polishing the project summary before it reaches Agent 1, and driving the Phase 3 debug loop | Claude Code CLI or claude.ai |
 
-SOC guides you through three phases: **Phase 1** (window calibration), **Phase 1a** (project priming with Agent 1), and **Phase 2** (automated routing).
+### The Guided Path
+
+SOC guides you from idea to finished app through four phases:
+
+```
+Phase 1   →   Phase 1a   →   Phase 2   →   Phase 3
+Calibrate     Define &        Automated     Automated
+windows       refine          routing &     debug loop
+              project         implement     with Claude
+```
+
+**Phase 1 — Calibrate**
+Set window handles, auto-locate input fields and Send buttons via template matching, draw OCR regions. One-time setup, saved automatically.
+
+**Phase 1a — Define the Project**
+Brainstorm with Agent 1 or load an existing project summary. Claude reviews and improves the summary — tightening ambiguous requirements, flagging gaps, and making it precise enough for Agent 1 to chunk reliably. When the summary is approved, SOC sends it to Agent 1 with the module block template and routing protocol.
+
+**Phase 2 — Build**
+SOC takes over. Agent 1 writes numbered module instruction blocks and sends them one at a time. SOC routes each block to Agent 2 automatically. Agent 2 confirms receipt and replies. Once all blocks are delivered, Agent 1 sends the authorization phrase and Agent 2 implements everything in alphanumeric order.
+
+**Phase 3 — Debug**
+Click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide. Describe the issues you see. SOC assembles a debug SOP — project context, git log, your issue list — and saves it to `staging/phase3_debug_sop.md`. Drag the file into Claude's chat to begin the debug session. Claude and you ping-pong through the issue list until every bug is resolved.
+
+> Phase 3 is quarantined from Agents 1 and 2 until you deliberately start it. Agents only see content injected into their chat windows — they never browse your file system.
+
+---
+
+## Requirements
+
+### Python 3.12 or later
+Download from [python.org/downloads](https://www.python.org/downloads/)
+
+> **Important:** During install, check **"Add Python to PATH"**.
+
+### Tesseract OCR
+Required for the OCR message watcher.
+
+1. Download the installer from [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
+2. Install to the default path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
 
 ---
 
@@ -243,6 +293,45 @@ SOC detects this phrase and switches back to **MODULE BLOCK MODE**.
 
 ---
 
+## Phase 3 — Automated Debug Loop
+
+When implementation is done (or when you hit a wall mid-build), click **🔬 Phase 3: Debug** at the bottom of the Phase 2 slide.
+
+### What it does
+
+1. A dialog opens. Type a numbered list of every bug, broken feature, or unexpected behaviour you want fixed.
+2. Click **Prepare Debug File**.
+3. SOC assembles a complete debug SOP containing:
+   - Your workspace path and project name
+   - The last 20 git commits
+   - Your issue list, numbered and formatted for action
+4. The SOP is saved to `staging/phase3_debug_sop.md` and opened in VS Code automatically.
+
+### Running the debug session
+
+Drag `phase3_debug_sop.md` from the VS Code file explorer into Claude's chat input field (or paste its contents). Claude reads the context and begins working through the issue list.
+
+The session is a **ping-pong loop**:
+
+```
+You (report issues)  →  Claude (diagnoses, fixes, asks questions)
+                     ←  You (confirm fixes or surface new issues)
+                     →  Claude (next fix) ...
+```
+
+Repeat until all items on your list are resolved. Claude carries full project context across the session — it can read files, run the test suite, check git history, and propose targeted fixes without you needing to re-explain the codebase.
+
+> **Note:** Phase 3 has limitations. It works best for bugs that are isolated to specific files or clear logic errors. For large architectural changes, go back to Phase 1a, refine the project summary, and rebuild the affected modules through Phase 2.
+
+### Quarantine
+
+The SOP file lives in `staging/` inside the SOC Ultralight source folder. This means:
+- It is included in source backups and git history if you commit it.
+- Agents 1 and 2 never see it — they only receive content that SOC explicitly injects into their chat windows. No agent browses your file system.
+- You control exactly when Phase 3 begins by choosing when to drag the file into Claude.
+
+---
+
 ## Hold State
 
 After routing a message to an agent, SOC **holds** — it pauses routing and waits for that agent to reply before sending the next message. This prevents message pile-ups.
@@ -429,7 +518,9 @@ SOC_Ultralight/
 ├── outbox/                         Drop .md files here for routing (git-ignored)
 │   ├── agent1/
 │   └── agent2/
-└── sent/                           Processed outbox files archived here (git-ignored)
+├── sent/                           Processed outbox files archived here (git-ignored)
+└── staging/                        Phase 3 debug SOP output (quarantined from agents)
+    └── phase3_debug_sop.md             Generated by Phase 3 — drag into Claude to start debug session
 ```
 
 ---
