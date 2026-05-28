@@ -197,27 +197,22 @@ def _find_button(template_name, threshold=0.75):
     return (cx, cy)
 
 def _inject_to_agent1(text):
-    """Paste text into Agent 1's input field and click Send. Returns True on success."""
+    """Paste text into Agent 1's input field and press Enter to send. Returns True on success."""
     import pyperclip
-    # Try preferred template first, then legacy fallback
     input_pos = _find_button("agent1_input.png") or _find_button("agent1_chat_input_field.png")
-    # Send button: use slightly lower threshold since button appearance varies
-    send_pos  = _find_button("agent1_send.png", threshold=0.55)
     if not input_pos:
         print("  [inject] agent1 input field not found")
         return False
-    if not send_pos:
-        print("  [inject] agent1 send button not found")
-        return False
-    print(f"  [inject] input=({input_pos[0]},{input_pos[1]})  send=({send_pos[0]},{send_pos[1]})")
+    print(f"  [inject] input=({input_pos[0]},{input_pos[1]}) — clicking and pasting")
     pyperclip.copy(text)
     pyautogui.click(*input_pos)
-    time.sleep(0.4)
+    time.sleep(0.5)
     pyautogui.hotkey("ctrl", "a")
     time.sleep(0.1)
     pyautogui.hotkey("ctrl", "v")
-    time.sleep(0.5)
-    pyautogui.click(*send_pos)
+    time.sleep(0.8)
+    # Enter sends in Copilot; avoids unreliable send-button template matching
+    pyautogui.press("enter")
     return True
 
 # ── Stage monitor ─────────────────────────────────────────────────────────────
@@ -283,7 +278,7 @@ def _run_pipeline(test_name, cfg, inject_fn=None,
         prompt_text = _build_prompt(test_name, dst)
         ok = inject_fn(prompt_text)
         if ok:
-            s.passed(f"Auto-injected {len(prompt_text)} chars → {src}", chars=len(prompt_text))
+            s.passed(f"Auto-injected {len(prompt_text)} chars -> {src}", chars=len(prompt_text))
         else:
             s.failed("Template matching failed — buttons not found")
             for name in list(stages)[1:]:
@@ -299,10 +294,11 @@ def _run_pipeline(test_name, cfg, inject_fn=None,
     print(f"  Waiting for {src} to respond ", end="", flush=True)
     deadline = time.time() + timeout_a1_respond
     while time.time() < deadline:
-        h = _hash(_ocr(src_bbox))
+        raw = _ocr(src_bbox)
+        h = _hash(raw)
         print(".", end="", flush=True)
-        if h != baseline_hash:
-            s.passed(f"Content changed (hash {baseline_hash}→{h})", old=baseline_hash, new=h)
+        if h != baseline_hash and raw.strip():   # ignore empty-frame false triggers
+            s.passed(f"Content changed (hash {baseline_hash}->{h})", old=baseline_hash, new=h)
             s.elapsed = elapsed()
             break
         time.sleep(2.0)
@@ -382,9 +378,11 @@ def _run_pipeline(test_name, cfg, inject_fn=None,
         print()
 
     # ── A2_RECEIVED ───────────────────────────────────────────────────────────
+    # Check A2 regardless of whether our harness saw trigger/sentinel — SOC Ultralight
+    # handles routing independently via its own scroll accumulation.
     s = stages["A2_RECEIVED"]
-    if stages["SENTINEL_SEEN"].status != "PASS" or dst_bbox is None:
-        s.skipped("SENTINEL_SEEN did not pass" if dst_bbox else "dst agent not configured")
+    if dst_bbox is None:
+        s.skipped("dst agent not configured")
         stages["CONTENT_MATCH"].skipped("A2_RECEIVED skipped")
     else:
         baseline_dst = _hash(_ocr(dst_bbox))
