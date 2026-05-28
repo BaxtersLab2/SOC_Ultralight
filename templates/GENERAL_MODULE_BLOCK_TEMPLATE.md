@@ -227,12 +227,39 @@ SAFETY & SECURITY NOTES
 --------------------------------------------------------------------------------
 [CONDITIONAL — include when the block handles auth, secrets, user input,
 destructive operations, privilege escalation, or external data.
-List specific requirements:
-  - HMAC tokens must be verified before any control action is dispatched.
-  - Secrets must never be logged, even at TRACE level.
+
+STANDING RULES — apply to every block regardless of this section being present:
+
+  CREDENTIALS & SECRETS:
+  - API keys, tokens, passwords, and connection strings must NEVER be literal
+    values in source code. Load from environment variables only.
+  - .env file is gitignored — never committed. Commit .env.example with
+    placeholder values only.
+  - If a secret is accidentally committed, treat it as compromised and rotate it.
+
+  PERSONAL INFORMATION:
+  - No real names, email addresses, phone numbers, or PII in source code,
+    comments, filenames, or any committed file. Use placeholders in tests/examples.
+
+  MACHINE PATHS:
+  - No hardcoded absolute paths (C:\Users\..., /home/user/...). Use relative
+    paths, environment variables, or runtime config for all file locations.
+
+  GIT HYGIENE:
+  - .gitignore must exist before any git add. Never run git add without
+    reviewing the diff for secrets and personal info first.
+  - Never push to remote during development. Push is authorized only after
+    USER review, all tests pass, and app is complete.
+
+  RUNTIME:
+  - Never log secrets, tokens, or PII at any verbosity level including DEBUG.
   - All SQL queries must use parameterized statements (no string interpolation).
-  - The dry_run flag must default to true; live execution requires an explicit
-    override AND a confirmed auth token.]
+  - Never pass user input to eval(), exec(), or shell commands.
+  - The dry_run flag must default to true; live execution requires explicit USER authorization.
+
+Block-specific requirements (add below when applicable):
+  - HMAC tokens must be verified before any control action is dispatched.
+  - Input validation required at: [list entry points for this block]]
 
 --------------------------------------------------------------------------------
 UNIT TESTS — WHAT TO VERIFY

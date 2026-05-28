@@ -26,10 +26,42 @@ Installing dependencies (cargo add, npm install, pip install, etc.) is NOT creat
 - Never loop on a failed operation. Stop → Report → Ask USER.
 
 ## Security
-- Never log secrets, tokens, or passwords at any verbosity level.
+
+### Credentials and secrets — NEVER hardcode
+- API keys, access tokens, passwords, private keys, connection strings, and auth secrets
+  must NEVER appear as literal values in source code, config files committed to git,
+  comments, or test fixtures.
+- All secrets are loaded at runtime via environment variables or a local `.env` file.
+- The `.env` file is always listed in `.gitignore`. It is NEVER committed.
+- Commit a `.env.example` file with placeholder values only (e.g. `API_KEY=your_key_here`).
+- If a secret is accidentally committed to git history, treat it as compromised immediately.
+  Rotate the credential. Do not assume removing it in a later commit is sufficient.
+
+### Personal information — NEVER in source
+- Real names, email addresses, phone numbers, usernames, physical addresses, or any other
+  personally identifiable information (PII) must NOT appear in source code, comments,
+  filenames, or any file committed to the repository.
+- Use placeholder values in examples and tests (e.g. `user@example.com`, `John Doe`).
+
+### Machine paths — NEVER hardcode
+- Absolute file system paths specific to any user's machine (e.g. `C:\Users\Baxter\`,
+  `/home/username/`, `/Users/me/`) must NOT appear in committed source code.
+- Use relative paths, environment variables, or runtime config for all file locations.
+- Workspace root and output paths are determined at runtime, not compile time.
+
+### Git — secrets audit before any authorized push
+- Before any git push (only when explicitly authorized by USER), scan the staged changes
+  for secrets: search for patterns matching API keys, email addresses, tokens, passwords,
+  and hardcoded absolute paths. Do not push if any are found.
+- Never use `git add .` or `git add -A` without reviewing the diff first.
+- `.gitignore` must exist and be committed before any other files are added.
+
+### Runtime security
+- Never log secrets, tokens, passwords, or PII at any verbosity level, including DEBUG and TRACE.
 - All SQL queries must use parameterized statements. No string interpolation into queries.
 - All destructive operations default to dry-run. Live execution requires explicit USER authorization.
 - Validate all external input at the system boundary. Never trust data from outside the process.
+- Never pass user-controlled input to eval(), exec(), shell commands, or dynamic code execution.
 
 ## Failure
 Stop → Report (what failed, what was tried) → Ask USER. No workarounds, no retries.
