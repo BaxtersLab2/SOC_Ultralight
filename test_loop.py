@@ -311,6 +311,25 @@ def _run_pipeline(test_name, cfg, inject_fn=None,
         return list(stages.values())
     print()
 
+    # Copilot auto-scrolls to the bottom after responding.  "To AgentX" is the first
+    # line of the response but is scrolled off.  Scroll up from the current position
+    # (bottom) until the trigger becomes visible in the frame — stopping as soon as
+    # it appears so we don't overshoot into old chat history from earlier tests.
+    cx_mid = (src_bbox[0] + src_bbox[2]) // 2
+    cy_mid = (src_bbox[1] + src_bbox[3]) // 2
+    print(f"  Scrolling up to expose trigger line ", end="", flush=True)
+    for _ in range(80):
+        pyautogui.moveTo(cx_mid, cy_mid, duration=0.0)
+        pyautogui.scroll(5)      # scroll up gently
+        time.sleep(0.15)
+        text = _ocr(src_bbox)
+        print("^", end="", flush=True)
+        if _has_trigger(text):
+            print(f" found!", end="", flush=True)
+            break
+    print()
+    time.sleep(0.5)   # let SOC Ultralight OCR tick catch the now-visible trigger
+
     # ── TRIGGER_SEEN ──────────────────────────────────────────────────────────
     s = stages["TRIGGER_SEEN"]
     accumulated = ""
