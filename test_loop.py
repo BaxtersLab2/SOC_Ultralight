@@ -96,7 +96,7 @@ TESTS = {
 
 def _build_prompt(test_name, dest="agent2"):
     body = TESTS[test_name]["body"]
-    routing_text = f"To {dest.capitalize()}, {body}\n\nend message now"
+    routing_text = f"To {dest.capitalize()}\n{body}\nend message now"
     return (
         f"Please repeat the text between the markers below ONE TIME, "
         f"exactly as written. Do not change any words, add punctuation, "
@@ -108,7 +108,7 @@ def _build_prompt(test_name, dest="agent2"):
 
 def _expected_routing_text(test_name, dest="agent2"):
     body = TESTS[test_name]["body"]
-    return f"To {dest}, {body}\n\nend message now"
+    return f"To {dest.capitalize()}\n{body}\nend message now"
 
 # ── OCR helpers ───────────────────────────────────────────────────────────────
 
