@@ -1128,9 +1128,24 @@ class SOCUltralight:
             self._log(f"[priming] could not read file: {e}")
             return
         msg = (
-            "Here is the project summary. Read it fully before responding. "
-            "Confirm you understand the scope, then ask me any clarifying questions "
-            "before we proceed to decomposition.\n\n"
+            "Here is an existing project summary. Read it fully, then check it "
+            "against the nine required areas below. If any area is missing, "
+            "unclear, or needs more detail, ask me about it — one gap, one "
+            "question at a time. Only ask about what is actually missing; do not "
+            "re-ask about areas that are already well defined. When every area is "
+            "covered and I confirm I am satisfied, present the completed summary.\n\n"
+            "THE NINE REQUIRED AREAS:\n"
+            "1. Project name\n"
+            "2. Purpose — what it does and why\n"
+            "3. Core features — major components, behaviour not code\n"
+            "4. Technical stack — language, framework, libraries, platform, build system\n"
+            "5. Security requirements — auth model, external credentials, sensitive data, "
+            "input surfaces, failure behaviour, compliance\n"
+            "6. Folder / workspace layout\n"
+            "7. External dependencies and integration points\n"
+            "8. Constraints and design decisions\n"
+            "9. Save path for block files\n\n"
+            "PROJECT SUMMARY:\n\n"
             f"{content}"
         )
         threading.Thread(
