@@ -3571,18 +3571,25 @@ class SOCUltralight:
             self._find_template_at(
                 "copilot_down_arrow.PNG", arrow_search_x, arrow_search_y, margin=120)
         )
+        chat_x = (rx0 + rx1) // 2
+        chat_y = (ry0 + ry1) // 2
         if arrow_xy:
             self._log(f"[nudge:{agent_id}] clicking down arrow at {arrow_xy}")
             pyautogui.click(*arrow_xy)
             time.sleep(0.6)
         else:
-            # Arrow not present — likely already at bottom. Ctrl+End to confirm.
-            chat_x = (rx0 + rx1) // 2
-            chat_y = (ry0 + ry1) // 2
+            # Template not found — use keyboard + scroll wheel to reach bottom.
+            # Click the message area first so keyboard events land in the right element.
+            self._log(f"[nudge:{agent_id}] down-arrow template miss — using scroll fallback")
             pyautogui.click(chat_x, chat_y)
             time.sleep(0.2)
-            pyautogui.hotkey("ctrl", "end")
-            time.sleep(0.6)
+            pyautogui.hotkey("ctrl", "end")   # scroll page
+            time.sleep(0.25)
+            pyautogui.press("end")            # scroll focused container
+            time.sleep(0.25)
+            # Scroll wheel at OCR centre — reaches Copilot's inner message div
+            pyautogui.scroll(-15, x=chat_x, y=chat_y)
+            time.sleep(0.5)
         self._log(f"[nudge:{agent_id}] at bottom")
 
         # ── Step 2: hover to reveal copy button ──────────────────────────────
