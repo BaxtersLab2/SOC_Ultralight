@@ -3625,7 +3625,19 @@ class SOCUltralight:
             self._log(f"[nudge:{agent_id}] clipboard empty — cooling 15s")
             return
 
-        self._log(f"[nudge:{agent_id}] clipboard: {len(text.strip())} chars — routing")
+        has_trigger  = bool(TRIGGER_RE.search(text))
+        has_sentinel = any(v in text.lower() for v in _SENTINEL_VARIANTS)
+        self._log(
+            f"[nudge:{agent_id}] clipboard: {len(text.strip())} chars — "
+            f"trigger={has_trigger} sentinel={has_sentinel}")
+
+        if has_trigger and not has_sentinel:
+            # Agent wrote the routing header but dropped 'end message now'.
+            # We already scrolled to the absolute bottom before copying, so
+            # the sentinel is genuinely absent — append it and route anyway.
+            self._log(f"[nudge:{agent_id}] sentinel missing — appending and routing")
+            text = text.rstrip() + "\nend message now"
+
         self._last_ocr_text.pop(agent_id, None)
         self._ocr_process(text, source_agent=agent_id)
         # _route_text (called inside _ocr_process) sets _waiting_reply = "agent2".
