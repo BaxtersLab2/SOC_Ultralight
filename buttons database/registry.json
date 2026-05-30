@@ -1,19 +1,19 @@
 {
   "agent1_chat_input_field.png": {
-    "matches": 47,
-    "conf_sum": 41.82464736700058,
+    "matches": 73,
+    "conf_sum": 65.04306983947754,
     "trained": true,
     "action": "click"
   },
   "agent2_chat_input_field.png": {
-    "matches": 26,
-    "conf_sum": 25.791479408740997,
+    "matches": 46,
+    "conf_sum": 45.772040247917175,
     "trained": true,
     "action": "click"
   },
   "agent2_window_scroll1.png": {
-    "matches": 15,
-    "conf_sum": 14.705809533596039,
+    "matches": 22,
+    "conf_sum": 21.692526936531067,
     "trained": true,
     "action": "click"
   },
@@ -30,104 +30,128 @@
     "action": "click"
   },
   "agent1_input.png": {
-    "matches": 22,
-    "conf_sum": 20.822814345359802,
+    "matches": 26,
+    "conf_sum": 24.776906490325928,
     "trained": true,
     "action": "focus_paste"
   },
   "agent1_scroll_dn.png": {
-    "matches": 38,
-    "conf_sum": 37.0414137840271,
+    "matches": 69,
+    "conf_sum": 67.07523226737976,
     "trained": true,
     "action": "click"
   },
   "agent1_scroll_up.png": {
-    "matches": 40,
-    "conf_sum": 38.74842828512192,
+    "matches": 74,
+    "conf_sum": 71.39874798059464,
     "trained": true,
     "action": "click"
   },
   "agent1_send.png": {
-    "matches": 20,
-    "conf_sum": 19.931328237056732,
+    "matches": 22,
+    "conf_sum": 21.847624003887177,
     "trained": true,
     "action": "click"
   },
   "agent2_scroll_up.png": {
-    "matches": 19,
-    "conf_sum": 18.416285455226898,
+    "matches": 24,
+    "conf_sum": 23.407809674739838,
     "trained": true,
     "action": "click"
   },
   "keep_all_changes.png": {
-    "matches": 60,
-    "conf_sum": 48.95215481519699,
+    "matches": 61,
+    "conf_sum": 49.95003008842468,
     "trained": true,
     "action": "click"
   },
   "send_message_to_agent1.png": {
-    "matches": 72,
-    "conf_sum": 59.943860709667206,
+    "matches": 75,
+    "conf_sum": 62.43342077732086,
     "trained": true,
     "action": "click"
   },
   "send_message_to_claude.png": {
-    "matches": 11,
-    "conf_sum": 9.9239981174469,
+    "matches": 40,
+    "conf_sum": 36.05992430448532,
     "trained": true,
     "action": "click"
   },
   "agent2_input.png": {
-    "matches": 12,
-    "conf_sum": 11.666381180286407,
+    "matches": 14,
+    "conf_sum": 13.640320777893066,
     "trained": true,
     "action": "focus_paste"
   },
   "agent2_scroll_dn.png": {
-    "matches": 51,
-    "conf_sum": 49.612548649311066,
+    "matches": 68,
+    "conf_sum": 66.33318436145782,
     "trained": true,
     "action": "click"
   },
   "agent2_send.png": {
-    "matches": 14,
-    "conf_sum": 13.702095866203308,
+    "matches": 15,
+    "conf_sum": 14.521265625953674,
     "trained": true,
     "action": "click"
   },
   "send_message_to_agent2.png": {
-    "matches": 79,
-    "conf_sum": 71.78974676132202,
+    "matches": 105,
+    "conf_sum": 94.41722971200943,
     "trained": true,
     "action": "click"
   },
   "claude_chat_input_field.png": {
-    "matches": 5,
-    "conf_sum": 4.9936195611953735,
-    "trained": false,
+    "matches": 26,
+    "conf_sum": 25.05574268102646,
+    "trained": true,
     "action": "click"
   },
   "agent3_input.png": {
-    "matches": 3,
-    "conf_sum": 2.9962651133537292,
-    "trained": false,
+    "matches": 19,
+    "conf_sum": 18.740311443805695,
+    "trained": true,
     "action": "click"
   },
   "agent3_scroll_dn.png": {
-    "matches": 4,
-    "conf_sum": 3.7828208804130554,
+    "matches": 6,
+    "conf_sum": 5.677176475524902,
     "trained": false,
     "action": "click"
   },
   "agent3_send.png": {
-    "matches": 6,
-    "conf_sum": 5.619081437587738,
-    "trained": false,
+    "matches": 33,
+    "conf_sum": 31.31853473186493,
+    "trained": true,
     "action": "click"
   },
   "agent1_window_scroll2.png": {
-    "matches": 1,
-    "conf_sum": 0.8936952948570251,
+    "matches": 2,
+    "conf_sum": 1.7596231698989868,
+    "trained": false,
+    "action": "click"
+  },
+  "claude_yes_button.png": {
+    "matches": 5,
+    "conf_sum": 4.983622670173645,
+    "trained": false,
+    "action": "click"
+  },
+  "agent1_scroll_indicator.png": {
+    "matches": 4,
+    "conf_sum": 3.9994219541549683,
+    "trained": false,
+    "action": "click"
+  },
+  "Agent2_copy_center.PNG": {
+    "matches": 0,
+    "conf_sum": 0.0,
+    "trained": false,
+    "action": "click"
+  },
+  "copilot_copy_button.png": {
+    "matches": 5,
+    "conf_sum": 4.9999043345451355,
     "trained": false,
     "action": "click"
   }

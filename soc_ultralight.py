@@ -95,7 +95,7 @@ _tess_path = (
 pytesseract.pytesseract.tesseract_cmd = _tess_path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-SCAN_NORMAL      = 1.5    # seconds between OCR scans (idle)
+SCAN_NORMAL      = 0.5    # seconds between OCR scans (idle)
 SCAN_RAPID       = 0.3    # seconds between scans in rapid mode
 RAPID_DURATION   = 8.0    # seconds to stay rapid after "to agent" spotted
 TRIGGER_PERSIST_SECS     = 30.0   # seconds a seen trigger stays remembered after scrolling off
@@ -137,7 +137,7 @@ TRAIN_TIMEOUT   =  15   # seconds user has to click before training is cancelled
 
 # Template stems containing these substrings are routing infrastructure.
 # They are shown as locked (no toggle) in the Auto-Click panel.
-AUTOCLICK_LOCKED = ("input_field", "send_message", "_scroll", "agent1_send", "agent2_send")
+AUTOCLICK_LOCKED = ("input_field", "_input", "_send", "send_message", "_scroll")
 
 for _d in [OUTBOX_DIR / "agent1", OUTBOX_DIR / "agent2", OUTBOX_DIR / "agent3",
            SENT_DIR   / "agent1", SENT_DIR   / "agent2", SENT_DIR   / "agent3",
@@ -561,11 +561,47 @@ Begin now: acknowledge the user's report, take a screenshot to see the current
 state of the app, and start working through the issue list.
 """.strip()
 
+# ── Agent3 outbox response protocol ───────────────────────────────────────────
+# Appended to every Agent3 SOP at inject / file-prepare time.
+# {outbox_path} is filled in at runtime from config.
+AGENT3_OUTBOX_PROTOCOL = """
+---
+## Response Delivery Protocol (Agent3 → SOC Outbox)
+
+Deliver your complete response via file — do NOT write long content in this chat.
+
+STEPS:
+1. Write your full response to:
+     {outbox_path}\\[descriptive_name]_to_agent2.md
+   Use _to_agent1.md if the response is addressed to Agent1 instead.
+   Use a short, meaningful [descriptive_name] (e.g. security_audit, improvement_v1).
+
+2. After the file is written, send this short notification in chat (one line only):
+     OUTBOX: [descriptive_name]_to_agent2.md
+
+SOC watches {outbox_path} and will automatically read the file, route it to the
+correct agent, and archive the file to {outbox_path}\\processed\\.
+Do not include your full response in chat — the file IS the response.
+"""
+
+# ── Agent2 outbox awareness note ──────────────────────────────────────────────
+# Appended to Agent2 SOP so Agent2 knows Agent3 responses arrive via SOC paste.
+AGENT2_OUTBOX_NOTE = """
+---
+## Receiving Agent3 Responses
+
+When Agent3 (project improver / security auditor) finishes a task it delivers
+its response via file. SOC will automatically paste that content into your input.
+You do not need to read Agent3's chat window or scroll for a long reply — the
+content will arrive here as if typed by SOC. Treat it as any other inbound message.
+"""
+
 
 class AgentConfig:
     __slots__ = ("hwnd", "title", "input_xy", "send_xy",
                  "scroll_dn_xy", "scroll_up_xy", "ocr_region",
                  "lbl_window", "lbl_input", "lbl_send", "lbl_scroll", "lbl_region",
+                 "lbl_pending", "lbl_pending_dot",
                  "prefix_var", "prefix_enabled", "msg_count")
 
     def __init__(self):
@@ -581,6 +617,8 @@ class AgentConfig:
         self.lbl_send      = None
         self.lbl_scroll    = None
         self.lbl_region    = None
+        self.lbl_pending     = None   # status text label (idle / pending / routed)
+        self.lbl_pending_dot = None   # coloured dot label
         self.prefix_var     = None
         self.prefix_enabled = None
         self.msg_count      = 0
@@ -603,6 +641,13 @@ class SOCUltralight:
         self._rapid_until = 0.0          # epoch time: stay rapid until this
         self._waiting_reply: str | None = None   # agent we just sent to; hold until they reply
         self._waiting_since: float      = 0.0    # epoch time the hold started
+        self._agent1_copy_fail_at: float = 0.0  # last time agent1 copy returned empty clipboard
+        self._agent1_last_hash: str      = ""    # last OCR hash seen while waiting for agent1
+        self._agent1_hash_stable_since: float = 0.0  # when current hash was first seen
+        self._agent2_copy_fail_at: float = 0.0  # last time agent2 clipboard copy returned empty
+        self._agent2_last_hash: str      = ""    # last OCR hash seen while waiting for agent2
+        self._agent2_hash_stable_since: float = 0.0  # when current hash was first seen
+        self._agent3_outbox_seen: dict[str, int] = {}  # filename → size at previous poll (stability gate)
         self._last_hold_log: float      = 0.0    # throttle hold log to once per 30s
         self._last_heartbeat_log: float = 0.0   # throttle heartbeat-suppressed log
 
@@ -623,6 +668,8 @@ class SOCUltralight:
         self._region_frame:      dict[str, str]   = {} # agent_id → pixel-hash of last captured frame
         self._region_last_change:dict[str, float] = {} # agent_id → when region pixels last changed
         self._last_ocr_text:     dict[str, str]   = {} # agent_id → md5 of last OCR text processed
+        self._last_strip_state:  dict[str, tuple]  = {} # agent_id → (has_trigger, has_sentinel) of last strip that triggered full scan
+        self._force_scan_active: dict[str, bool]  = {} # agent_id → True while nudge force-scan is running (blocks _ocr_tick)
         self._inject_grace:      dict[str, float] = {} # agent_id → epoch until OCR routing suppressed
         self._pending_trigger:   dict[str, tuple | None] = {}  # agent_id → (dest_agent, expiry) | None
         self._scroll_accum:      dict[str, str]   = {}  # agent_id → accumulated OCR text across frames
@@ -657,7 +704,8 @@ class SOCUltralight:
         self._autoclick_panel_open = False   # collapsed by default
         self._training_stem: str | None = None  # stem currently being trained; None = idle
 
-        self._project_name_var = tk.StringVar()  # active project name — prepended to every Agent 1 message
+        self._project_name_var    = tk.StringVar()  # active project name — prepended to every Agent 1 message
+        self._agent3_outbox_var   = tk.StringVar()  # path to agent3_outbox folder (user-configured)
 
         # ── Mode + anti-drift state ───────────────────────────────────────────
         self._mode                    = "module_block"  # "module_block" | "implementation"
@@ -676,6 +724,7 @@ class SOCUltralight:
     # ── Window ────────────────────────────────────────────────────────────────
 
     def _quit(self):
+        self._save_config()
         self.root.quit()
         self.root.destroy()
 
@@ -785,6 +834,16 @@ class SOCUltralight:
             bg=BG2, fg=YELLOW, font=("Segoe UI", 9, "bold"),
             relief="flat", cursor="hand2", padx=10, pady=4
         ).pack(side="left")
+        tk.Button(
+            cal_row, text="⊞ Snap to Grid", command=self._snap_to_grid,
+            bg=BG2, fg=ACCENT, font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=4
+        ).pack(side="left", padx=(4, 0))
+        tk.Button(
+            cal_row, text="↺ Re-calibrate", command=self._recalibrate,
+            bg=BG2, fg=ORANGE, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=6, pady=4
+        ).pack(side="left", padx=(4, 0))
         self._cal_status_lbl = tk.Label(
             cal_row, text="not run yet",
             bg=BG, fg=FG, font=("Segoe UI", 8, "italic"))
@@ -1330,9 +1389,37 @@ class SOCUltralight:
         if all_ok:
             self._p1a_advance_btn.config(state="normal", fg=FG, bg=ACCENT,
                                          activebackground=ACCENT)
+            if not getattr(self, "_p1a_auto_advanced", False):
+                self._p1a_auto_advanced = True
+                self.root.after(2000, self._auto_advance_to_phase2)
         else:
             self._p1a_advance_btn.config(state="disabled", fg="#666666",
                                          bg=BG2, activebackground=BG2)
+
+    def _auto_advance_to_phase2(self):
+        """Auto-slide to Phase 2 when all Phase 1a criteria are met, then
+        stagger-send both SOPs so agents are briefed before user clicks Start OCR."""
+        self._show_phase(3)
+        self._log("[auto] All Phase 1a criteria met — advancing to Phase 2")
+        self._set_status("Phase 2 ready — SOPs sending automatically…")
+        # Agent 2 SOP first (executor needs rules before orchestrator starts)
+        self.root.after(1500, self._auto_send_agent2_sop)
+
+    def _auto_send_agent2_sop(self):
+        if self.agents["agent2"].hwnd:
+            self._start_agent2()
+            self._log("[auto] Agent 2 SOP auto-sent")
+        else:
+            self._log("[auto] Agent 2 window not set — SOP not sent (click ▶ Agent 2 SOP manually)")
+        self.root.after(6000, self._auto_send_agent1_sop)
+
+    def _auto_send_agent1_sop(self):
+        if self.agents["agent1"].hwnd:
+            self._start_agent1()
+            self._log("[auto] Agent 1 SOP auto-sent — click ▶ OCR Watch when agents are ready")
+            self._set_status("SOPs sent — start OCR when agents are ready")
+        else:
+            self._log("[auto] Agent 1 window not set — SOP not sent (click ▶ Agent 1 SOP manually)")
 
     def _build_phase2_ui(self):
         p = self._p2_frame
@@ -1410,6 +1497,15 @@ class SOCUltralight:
 
         hold_row = tk.Frame(p, bg=BG, pady=1)
         hold_row.pack(fill="x", padx=12)
+        # ⊘ A3 packed first so it anchors to the right before left-side buttons consume space
+        _a3_lbl = "⊘ A3" if self._bypass_agent3 else "● A3"
+        _a3_fg  = "#666666" if self._bypass_agent3 else GREEN
+        self._p2_bypass_a3_btn = tk.Button(
+            hold_row, text=_a3_lbl,
+            command=self._toggle_bypass_agent3,
+            bg=BG2, fg=_a3_fg, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=6, pady=2)
+        self._p2_bypass_a3_btn.pack(side="right")
         self._hold_btns: dict[str, tk.Button] = {}
         for _aid, _short in [("agent1", "A1"), ("agent2", "A2"), ("agent3", "A3")]:
             _btn = tk.Button(
@@ -1427,6 +1523,27 @@ class SOCUltralight:
             bg=BG2, fg=FG, font=("Segoe UI", 8),
             relief="flat", cursor="hand2", padx=8, pady=2)
         self._pause_btn.pack(side="left", padx=(0, 4))
+
+        # Nudge row: per-agent force-scan buttons + pending indicators
+        nudge_row = tk.Frame(p, bg=BG, pady=2)
+        nudge_row.pack(fill="x", padx=12)
+        for _aid, _short in [("agent1", "A1"), ("agent2", "A2"), ("agent3", "A3")]:
+            _cfg = self.agents[_aid]
+            _cell = tk.Frame(nudge_row, bg=BG)
+            _cell.pack(side="left", padx=(0, 6))
+            tk.Button(
+                _cell, text=f"⚡ {_short}",
+                command=lambda a=_aid: threading.Thread(
+                    target=self._ocr_force_scan, args=(a,), daemon=True).start(),
+                bg=BG2, fg=ACCENT, relief="flat", font=("Segoe UI", 8),
+                cursor="hand2", padx=6, pady=2
+            ).pack(side="left")
+            _cfg.lbl_pending_dot = tk.Label(_cell, text="●", bg=BG, fg="#444444",
+                                            font=("Segoe UI", 9))
+            _cfg.lbl_pending_dot.pack(side="left", padx=(3, 0))
+            _cfg.lbl_pending = tk.Label(_cell, text="", bg=BG, fg="#555555",
+                                        font=("Segoe UI", 7, "italic"))
+            _cfg.lbl_pending.pack(side="left", padx=(2, 0))
 
         welfare_row = tk.Frame(p, bg=BG, pady=2)
         welfare_row.pack(fill="x", padx=12)
@@ -1475,6 +1592,23 @@ class SOCUltralight:
         self.project_entry.pack(side="left", fill="x", expand=True, padx=(6, 4))
         self.project_entry.bind("<FocusOut>", lambda _: self._save_config())
         self.project_entry.bind("<Return>", lambda _: self.project_entry.master.focus_set())
+
+        outbox_row = tk.Frame(p, bg=BG)
+        outbox_row.pack(fill="x", padx=12, pady=(2, 2))
+        tk.Label(outbox_row, text="A3 Outbox:", bg=BG, fg=FG,
+                 font=("Segoe UI", 8)).pack(side="left")
+        outbox_entry = tk.Entry(
+            outbox_row, textvariable=self._agent3_outbox_var,
+            bg=BG2, fg="#4ec9b0", insertbackground=FG,
+            relief="flat", font=("Segoe UI", 8))
+        outbox_entry.pack(side="left", fill="x", expand=True, padx=(6, 4))
+        outbox_entry.bind("<FocusOut>", lambda _: self._on_outbox_path_change())
+        outbox_entry.bind("<Return>",   lambda _: self._on_outbox_path_change())
+        tk.Button(
+            outbox_row, text="…", command=self._browse_agent3_outbox,
+            bg=BG2, fg=FG, font=("Segoe UI", 8),
+            relief="flat", cursor="hand2", padx=4
+        ).pack(side="left")
 
         self._build_autoclick_panel(p)
 
@@ -2344,6 +2478,7 @@ class SOCUltralight:
 
         self._log(f"[{agent_id}] {coord_type} → ({x},{y})")
         self._set_status(f"{agent_id} {coord_type} captured at ({x},{y})")
+        self.root.after(0, self._check_phase1_complete)
 
     def _save_template_crop(self, agent_id: str, slot: str, cx: int, cy: int):
         """Screenshot a TEMPLATE_CAPTURE×TEMPLATE_CAPTURE square centred on
@@ -2572,11 +2707,21 @@ class SOCUltralight:
                 input_xy = tmpl_input or cfg.input_xy
 
                 if not input_xy:
-                    input_xy = self._prompt_missing_coord(agent_id, "input")
+                    # Auto-recalibrate: clear stale coords and try template matching
+                    self._log(
+                        f"[router] {agent_id}: input not found — auto-recalibrating…")
+                    self._set_status(f"⚠ {agent_id}: input missing — recalibrating…")
+                    cfg.input_xy = None
+                    cfg.send_xy  = None
+                    self._auto_calibrate()
+                    tmpl_input2, tmpl_send2 = self._find_two_buttons(agent_id)
+                    input_xy = tmpl_input2 or cfg.input_xy
+                    if not input_xy:
+                        input_xy = self._prompt_missing_coord(agent_id, "input")
                     if not input_xy:
                         self._log(
-                            f"[router] {agent_id}: input field not located — "
-                            "send aborted. Use ⊙ Input to set it.")
+                            f"[router] {agent_id}: input field not located after "
+                            "recalibration — send aborted. Use ⊙ Input to set it.")
                         self._set_status(
                             f"⚠ {agent_id}: input field missing — set via ⊙ Input")
                         return
@@ -2748,6 +2893,10 @@ class SOCUltralight:
                 return False
             self._inject_to_agent(agent_id, body)
 
+            # Flash source agent's pending indicator green — message routed
+            if source_agent:
+                self._set_pending_routed(source_agent)
+
             # Clear pending trigger for source window — message successfully routed
             if source_agent and source_agent in self._pending_trigger:
                 self._pending_trigger[source_agent] = None
@@ -2778,6 +2927,8 @@ class SOCUltralight:
                     self._mode = "module_block"
                     self.root.after(0, self._update_mode_indicator)
                     self._log("[mode] ✓ Implementation complete — MODULE BLOCK MODE restored")
+                    self.root.after(0, lambda: self._set_status(
+                        "✅ Implementation complete — run Phase 2a Security Audit next"))
 
             # Auto-release manual holds after one successful route — one-shot gate.
             if any(self._manual_hold.values()):
@@ -2964,6 +3115,8 @@ class SOCUltralight:
             self._a3_panel_frame.pack_forget()
             if "agent3" in self._hold_btns:
                 self._hold_btns["agent3"].pack_forget()
+            if hasattr(self, "_p2_bypass_a3_btn"):
+                self._p2_bypass_a3_btn.config(text="⊘ A3", fg="#666666")
             self._log("[agent3] bypassed — agent3 OCR and routing disabled")
         else:
             self._a3_bypass_btn.config(text="● Agent 3  [active]", fg=GREEN)
@@ -2971,6 +3124,8 @@ class SOCUltralight:
             if "agent3" in self._hold_btns:
                 self._hold_btns["agent3"].pack(side="left", padx=(0, 4),
                                                before=self._pause_btn)
+            if hasattr(self, "_p2_bypass_a3_btn"):
+                self._p2_bypass_a3_btn.config(text="● A3", fg=GREEN)
             self._log("[agent3] active — agent3 OCR and routing enabled")
         self.root.after(0, self._update_attendance_ui)
         self.root.after(0, self._check_phase1_complete)
@@ -3110,6 +3265,11 @@ class SOCUltralight:
             self._scroll_accum_active.clear()
             self._scroll_accum.clear()
             self._pending_trigger.clear()
+            self._last_strip_state.clear()
+            self._last_ocr_text.clear()
+            if self._autoclick_running:
+                self._autoclick_running = False
+                self._ac_scan_btn.config(text="▶ Scan", fg=GREEN)
             self.ocr_btn.config(text="▶ Start OCR", bg=GREEN, fg="#1e1e1e",
                                  activebackground="#3aaf7a")
             self.ocr_lbl.config(text="OCR: OFF", fg=FG)
@@ -3129,7 +3289,7 @@ class SOCUltralight:
             self._log(f"[ocr] started — {SCAN_NORMAL}s normal / "
                       f"{SCAN_RAPID}s rapid (triggers on 'to agent' spotted)")
             self._log("[ocr] watching for:  To agentX  →  body  →  "
-                      "paste then send this now")
+                      "end message now")
 
     def _ocr_loop(self):
         # Open one mss context for the lifetime of the scan loop — avoids
@@ -3179,6 +3339,383 @@ class SOCUltralight:
                 self.root.after(0, self._update_ocr_hold_label)
                 in_rapid = time.time() < self._rapid_until
                 time.sleep(SCAN_RAPID if in_rapid else SCAN_NORMAL)
+
+    def _ocr_force_scan(self, agent_id: str):
+        """Proactive scroll-bracket-read-route for one agent, bypassing all dedup.
+
+        Agent1 (Copilot/Edge) uses a dedicated clipboard path — jump to bottom,
+        hover to reveal the copy button, click it, parse clipboard. No scroll loops.
+
+        All other agents use the scroll-bracket approach:
+          both visible     → route immediately (no scrolling needed)
+          sentinel only    → find top: scroll UP until trigger found (detection only)
+                             read down: accumulate from trigger to sentinel
+          trigger only     → find bottom: scroll DOWN until sentinel confirmed (detection only)
+                             go back to top: scroll UP same steps to return to trigger
+                             read down: accumulate from trigger to sentinel
+          neither visible  → find bottom: scroll DOWN to confirm sentinel exists (stale if not)
+                             find top: scroll UP until trigger found (detection only)
+                             read down: accumulate from trigger to sentinel"""
+        cfg = self.agents.get(agent_id)
+        if not cfg or not cfg.ocr_region:
+            self._log(f"[nudge:{agent_id}] no OCR region configured")
+            return
+
+        # Agent1 (Copilot) gets its own clipboard-based read path.
+        # Set the flag HERE (not inside _ocr_force_scan_copilot) so the tick loop
+        # sees it immediately and cannot spawn a concurrent thread before the flag is set.
+        if agent_id == "agent1":
+            already_upstream = (self._waiting_reply and
+                                self._waiting_reply != "agent1")
+            if already_upstream:
+                self._log(f"[nudge:{agent_id}] upstream hold active ({self._waiting_reply}) — skipping copy")
+                return
+            self._force_scan_active[agent_id] = True
+            try:
+                self._ocr_force_scan_copilot()
+            finally:
+                self._force_scan_active[agent_id] = False
+            return
+
+        self._force_scan_active[agent_id] = True
+        try:
+            self._last_ocr_text.pop(agent_id, None)
+            self._last_strip_state.pop(agent_id, None)
+
+            # ── Phase 0: initial scan ────────────────────────────────────────
+            frame = self._ocr_grab(agent_id)
+            has_trigger  = bool(TRIGGER_RE.search(frame))
+            has_sentinel = any(v in frame.lower() for v in _SENTINEL_VARIANTS)
+            self._log(f"[nudge:{agent_id}] initial — trigger={has_trigger} sentinel={has_sentinel}")
+
+            if has_trigger and has_sentinel:
+                self._log(f"[nudge:{agent_id}] full message visible — routing {len(frame.strip())} chars")
+                self._ocr_process(frame, source_agent=agent_id)
+                return
+
+            # ── Phase 1b / 1c: confirm the missing anchor (detection only) ───
+            # For sentinel-only: nothing to confirm — sentinel already seen, go to Phase 1.
+            # For trigger-only or neither: scroll DOWN to confirm sentinel exists.
+            # This is detection only — no accumulation.  If sentinel never appears,
+            # the agent is off-format or still typing (STALE).
+            verify_steps = 0
+            if not has_sentinel:
+                _reason = "trigger-only" if has_trigger else "neither visible"
+                self._log(f"[nudge:{agent_id}] {_reason} — scrolling down to confirm sentinel")
+                probe     = frame
+                no_growth = 0
+                for step in range(30):
+                    if not self._force_scan_active.get(agent_id):
+                        return
+                    self._scroll_agent_down(agent_id)
+                    verify_steps += 1
+                    time.sleep(SCROLL_ACCUM_MIN_INTERVAL)
+                    frame = self._ocr_grab(agent_id)
+                    if any(v in frame.lower() for v in _SENTINEL_VARIANTS):
+                        has_sentinel = True
+                        has_trigger  = bool(TRIGGER_RE.search(frame))
+                        self._log(f"[nudge:{agent_id}] sentinel confirmed at step {step + 1}")
+                        break
+                    new_probe = self._merge_scroll_text(probe, frame)
+                    if new_probe == probe:
+                        no_growth += 1
+                        if no_growth >= 2:
+                            self._log(f"[nudge:{agent_id}] STALE — bottom reached, no sentinel")
+                            self._mark_pending_stale(agent_id)
+                            return
+                    else:
+                        no_growth = 0
+                    probe = new_probe
+                else:
+                    if not has_sentinel:
+                        self._log(f"[nudge:{agent_id}] STALE — 30 down-scrolls, no sentinel found")
+                        self._mark_pending_stale(agent_id)
+                        return
+
+                # Return to trigger position: scroll up the same number of steps.
+                # (each _scroll_agent_down = 5 units; _scroll_agent_up(n=1) = 5 units up)
+                if not has_trigger and verify_steps:
+                    self._log(f"[nudge:{agent_id}] returning to top ({verify_steps} up-scrolls)")
+                    for _ in range(verify_steps):
+                        if not self._force_scan_active.get(agent_id):
+                            return
+                        self._scroll_agent_up(agent_id, n=1)
+                        time.sleep(0.15)
+                    frame = self._ocr_grab(agent_id)
+
+            # ── Phase 1: scroll UP to find trigger (detection only) ──────────
+            # Covers: sentinel-only initial state, and the returned-to-top path above.
+            # No content is accumulated here — frames are checked for trigger only.
+            if not has_trigger:
+                self._log(f"[nudge:{agent_id}] scrolling up — hunting for trigger")
+                for step in range(15):
+                    if not self._force_scan_active.get(agent_id):
+                        return
+                    self._scroll_agent_up(agent_id, n=5)
+                    time.sleep(0.25)
+                    frame = self._ocr_grab(agent_id)
+                    if TRIGGER_RE.search(frame):
+                        has_trigger = True
+                        self._log(f"[nudge:{agent_id}] trigger found after {step + 1} up-scroll(s)")
+                        break
+
+            if not has_trigger:
+                self._log(f"[nudge:{agent_id}] trigger not found after scrolling up — aborting")
+                return
+
+            # ── Phase 2: read DOWN — unidirectional accumulation ─────────────
+            # Both anchors confirmed. Start fresh buffer from the trigger-visible frame
+            # and scroll down, merging frames with dedup until sentinel lands in buffer.
+            accum    = frame
+            deadline = time.time() + SCROLL_ACCUM_TIMEOUT
+            self._log(f"[nudge:{agent_id}] read-down — accumulating from trigger to sentinel")
+
+            for _step in range(40):
+                if any(v in accum.lower() for v in _SENTINEL_VARIANTS):
+                    self._log(f"[nudge:{agent_id}] sentinel in buffer — routing {len(accum.strip())} chars")
+                    self._last_ocr_text.pop(agent_id, None)
+                    self._ocr_process(accum, source_agent=agent_id)
+                    return
+                if time.time() > deadline or not self._force_scan_active.get(agent_id):
+                    break
+                self._scroll_agent_down(agent_id)
+                time.sleep(SCROLL_ACCUM_MIN_INTERVAL)
+                frame = self._ocr_grab(agent_id)
+                accum = self._merge_scroll_text(accum, frame)
+
+            # Final sentinel check after loop exhaustion
+            if any(v in accum.lower() for v in _SENTINEL_VARIANTS):
+                self._log(f"[nudge:{agent_id}] sentinel found (late) — routing {len(accum.strip())} chars")
+                self._last_ocr_text.pop(agent_id, None)
+                self._ocr_process(accum, source_agent=agent_id)
+            elif accum.strip() and TRIGGER_RE.search(accum):
+                self._log(f"[nudge:{agent_id}] timeout — routing partial ({len(accum.strip())} chars)")
+                self._last_ocr_text.pop(agent_id, None)
+                self._ocr_process(accum, source_agent=agent_id)
+            else:
+                self._log(f"[nudge:{agent_id}] nothing valid to route — scan failed")
+
+        finally:
+            self._force_scan_active[agent_id] = False
+
+    def _ocr_force_scan_copilot(self):
+        """Clipboard-based read path for agent1 (Copilot/Edge) only.
+
+        Sequence:
+          1. Focus Copilot window
+          2. Click down arrow at known fixed location (1347,904) to jump to bottom;
+             fall back to Ctrl+End if the arrow is not visible (already at bottom)
+          3. Hover over the response body — Copilot reveals its action icons
+          4. Template-match Copilot_copy_button.PNG — click to copy last response
+          5. Read clipboard → parse trigger+body+sentinel → route
+
+        _waiting_reply and _force_scan_active are managed by _ocr_force_scan (caller)."""
+        agent_id = "agent1"
+        cfg = self.agents.get(agent_id)
+        if not cfg or not cfg.ocr_region:
+            return
+
+        self._last_ocr_text.pop(agent_id, None)
+        self._last_strip_state.pop(agent_id, None)
+
+        rx0, ry0, rx1, ry1 = cfg.ocr_region
+        # Copy button sits ~153px from OCR left edge, ~41px above OCR bottom.
+        # Define up front so hover sweep uses the correct x (NOT centre).
+        fb_x = rx0 + 153
+        fb_y = ry1 - 41
+
+        # ── Focus Copilot window ──────────────────────────────────────────────
+        try:
+            import win32gui, win32con
+            win32gui.ShowWindow(cfg.hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(cfg.hwnd)
+            time.sleep(0.25)
+        except Exception as e:
+            self._log(f"[nudge:{agent_id}] focus error: {e}")
+
+        # ── Step 1: jump to bottom ────────────────────────────────────────────
+        # Try both scroll-indicator templates; each matches reliably in different sessions.
+        arrow_search_x = (rx0 + rx1) // 2
+        arrow_search_y = ry1
+        arrow_xy = (
+            self._find_template_at(
+                "agent1_scroll_indicator.png", arrow_search_x, arrow_search_y, margin=120)
+            or
+            self._find_template_at(
+                "copilot_down_arrow.PNG", arrow_search_x, arrow_search_y, margin=120)
+        )
+        if arrow_xy:
+            self._log(f"[nudge:{agent_id}] clicking down arrow at {arrow_xy}")
+            pyautogui.click(*arrow_xy)
+            time.sleep(0.6)
+        else:
+            # Arrow not present — likely already at bottom. Ctrl+End to confirm.
+            chat_x = (rx0 + rx1) // 2
+            chat_y = (ry0 + ry1) // 2
+            pyautogui.click(chat_x, chat_y)
+            time.sleep(0.2)
+            pyautogui.hotkey("ctrl", "end")
+            time.sleep(0.6)
+        self._log(f"[nudge:{agent_id}] at bottom")
+
+        # ── Step 2: hover to reveal copy button ──────────────────────────────
+        # The copy button only appears on hover. Hover at fb_x (the button's x
+        # column), sweeping downward through the message bubble. Previous bug:
+        # sweep used centre-x (~1380) but copy button is at rx0+153 (~1199).
+        copy_xy = None
+        for hover_y in (ry1 - 120, ry1 - 80, ry1 - 41):
+            pyautogui.moveTo(fb_x, hover_y, duration=0.25)
+            time.sleep(0.55)
+            copy_xy = self._find_template("Copilot_copy_button.PNG")
+            if copy_xy:
+                self._log(f"[nudge:{agent_id}] copy button at {copy_xy} (hover_y={hover_y})")
+                break
+
+        # ── Step 3: click copy button ─────────────────────────────────────────
+        if copy_xy:
+            pyperclip.copy("")
+            pyautogui.click(*copy_xy)
+            time.sleep(0.6)
+        else:
+            # Template still missed. Mouse is already at (fb_x, fb_y) from the
+            # final sweep stop — click positionally without moving.
+            self._log(f"[nudge:{agent_id}] template miss — positional click ({fb_x},{fb_y})")
+            pyperclip.copy("")
+            pyautogui.click(fb_x, fb_y)
+            time.sleep(0.6)
+
+        # ── Step 4: read clipboard and route ──────────────────────────────────
+        text = pyperclip.paste()
+        if not text or not text.strip():
+            self._agent1_copy_fail_at = time.time()
+            self._log(f"[nudge:{agent_id}] clipboard empty — cooling 15s")
+            return
+
+        self._log(f"[nudge:{agent_id}] clipboard: {len(text.strip())} chars — routing")
+        self._last_ocr_text.pop(agent_id, None)
+        self._ocr_process(text, source_agent=agent_id)
+        # _route_text (called inside _ocr_process) sets _waiting_reply = "agent2".
+        # That flag is the sequence gate — force_scan will not re-fire until
+        # agent2's reply has been received and sent into agent1's input.
+
+    def _ocr_force_scan_vscode(self):
+        """Clipboard-based read path for agent2 (VS Code Claude) — long-message fallback.
+        Triggered when OCR hash is stable with trigger visible but sentinel below the fold.
+        _force_scan_active["agent2"] is set by the caller before this thread starts."""
+        agent_id = "agent2"
+        try:
+            cfg = self.agents.get(agent_id)
+            if not cfg or not cfg.ocr_region:
+                return
+
+            self._last_ocr_text.pop(agent_id, None)
+            self._last_strip_state.pop(agent_id, None)
+
+            rx0, ry0, rx1, ry1 = cfg.ocr_region
+            sweep_x = (rx0 + rx1) // 2
+
+            # Focus VS Code window
+            try:
+                import win32gui, win32con
+                if cfg.hwnd:
+                    win32gui.ShowWindow(cfg.hwnd, win32con.SW_RESTORE)
+                    win32gui.SetForegroundWindow(cfg.hwnd)
+                    time.sleep(0.25)
+            except Exception as e:
+                self._log(f"[nudge:{agent_id}] focus error: {e}")
+
+            # Step 1: scroll to bottom — try the trained scroll_dn template first
+            scroll_xy = self._find_template_at(
+                "agent2_scroll_dn.png", sweep_x, ry1, margin=120)
+            if scroll_xy:
+                self._log(f"[nudge:{agent_id}] clicking scroll_dn at {scroll_xy}")
+                pyautogui.click(*scroll_xy)
+                time.sleep(0.5)
+            else:
+                # Fallback: click chat area and press End to reach bottom
+                pyautogui.click(sweep_x, (ry0 + ry1) // 2)
+                time.sleep(0.2)
+                pyautogui.hotkey("ctrl", "end")
+                time.sleep(0.5)
+            self._log(f"[nudge:{agent_id}] at bottom")
+
+            # Step 2: hover to reveal copy button (Agent2_copy_center.PNG)
+            # VS Code's action bar appears below each response on hover.
+            # Sweep down through the lower portion of the OCR region.
+            copy_xy = None
+            for hover_y in (ry1 - 120, ry1 - 80, ry1 - 40):
+                pyautogui.moveTo(sweep_x, hover_y, duration=0.25)
+                time.sleep(0.55)
+                copy_xy = self._find_template("Agent2_copy_center.PNG")
+                if copy_xy:
+                    self._log(f"[nudge:{agent_id}] copy button at {copy_xy} (hover_y={hover_y})")
+                    break
+
+            # Step 3: click copy button
+            if not copy_xy:
+                self._log(f"[nudge:{agent_id}] copy button not found — aborting clipboard grab")
+                self._agent2_copy_fail_at = time.time()
+                return
+
+            pyperclip.copy("")
+            pyautogui.click(*copy_xy)
+            time.sleep(0.6)
+
+            # Step 4: read clipboard and route
+            text = pyperclip.paste()
+            if not text or not text.strip():
+                self._agent2_copy_fail_at = time.time()
+                self._log(f"[nudge:{agent_id}] clipboard empty — cooling 15s")
+                return
+
+            self._log(f"[nudge:{agent_id}] clipboard: {len(text.strip())} chars — routing")
+            self._last_ocr_text.pop(agent_id, None)
+            self._ocr_process(text, source_agent=agent_id)
+        finally:
+            self._force_scan_active[agent_id] = False
+
+    def _update_pending_indicator(self, agent_id: str, sig: tuple):
+        """Update the per-agent pending dot and label.
+        sig = (has_trigger, has_sentinel).  Call with (False, False) to clear."""
+        cfg = self.agents.get(agent_id)
+        if not cfg or cfg.lbl_pending is None:
+            return
+        has_trigger, has_sentinel = sig
+        if has_trigger and has_sentinel:
+            dot_color, txt, txt_color = YELLOW, "trigger + sentinel", YELLOW
+        elif has_trigger:
+            dot_color, txt, txt_color = ORANGE, "trigger visible", ORANGE
+        elif has_sentinel:
+            dot_color, txt, txt_color = ORANGE, "sentinel visible", ORANGE
+        else:
+            dot_color, txt, txt_color = "#444444", "idle", "#555555"
+        def _do():
+            cfg.lbl_pending_dot.config(fg=dot_color)
+            cfg.lbl_pending.config(text=txt, fg=txt_color)
+        self.root.after(0, _do)
+
+    def _set_pending_routed(self, agent_id: str):
+        """Flash the pending indicator green briefly after a successful route."""
+        cfg = self.agents.get(agent_id)
+        if not cfg or cfg.lbl_pending is None:
+            return
+        def _flash():
+            cfg.lbl_pending_dot.config(fg=GREEN)
+            cfg.lbl_pending.config(text="routed ✓", fg=GREEN)
+            self.root.after(3000, lambda: self._update_pending_indicator(
+                agent_id, (False, False)))
+        self.root.after(0, _flash)
+
+    def _mark_pending_stale(self, agent_id: str):
+        """Mark the pending indicator grey/stale — agent is off-format or in
+        conversational mode.  Stays until the next strip signal clears it."""
+        cfg = self.agents.get(agent_id)
+        if not cfg or cfg.lbl_pending is None:
+            return
+        def _do():
+            cfg.lbl_pending_dot.config(fg="#888888")
+            cfg.lbl_pending.config(text="stale — check agent", fg="#888888")
+        self.root.after(0, _do)
 
     def _ocr_snapshot(self):
         """On-demand OCR dump — grabs every configured region, runs Tesseract,
@@ -3235,7 +3772,58 @@ class SOCUltralight:
         for aid, cfg in configured:
             if aid == "agent3" and self._bypass_agent3:
                 continue   # agent3 bypassed — skip its OCR region entirely
+            if self._force_scan_active.get(aid):
+                continue   # nudge scan in progress — don't collide
             rx0, ry0, rx1, ry1 = cfg.ocr_region
+
+            # ── Fast-strip pre-check ──────────────────────────────────────────
+            # When idle (not accumulating, not waiting for this agent's reply,
+            # not in scroll-grace), OCR only the bottom 40% of the region to
+            # detect sentinel/trigger before committing to the full 1.59 s scan.
+            # 40% (vs the earlier 8%) ensures the trigger is covered: when an
+            # agent starts generating "To AgentX / ..." the first line appears
+            # near the bottom of the visible chat — which lands in the lower
+            # half of the OCR region. An 8% strip was too narrow and caused
+            # triggers to be missed, preventing accumulation from ever starting.
+            _idle = (not self._scroll_accum_active.get(aid) and
+                     self._waiting_reply != aid and
+                     time.time() >= self._scroll_grace.get(aid, 0))
+            if _idle:
+                _sh = max(120, int((ry1 - ry0) * 0.40))
+                try:
+                    _simg = ImageGrab.grab(
+                        bbox=(rx0, ry1 - _sh, rx1, ry1), all_screens=True)
+                    _stxt = pytesseract.image_to_string(
+                        _prepare_img_for_ocr(_simg), config="--psm 6")
+                    _slow = _stxt.lower()
+                    _has_trig = bool(TRIGGER_RE.search(_stxt))
+                    _has_sent = any(v in _slow for v in _SENTINEL_VARIANTS)
+                    if not _has_trig and not _has_sent:
+                        # Bottom strip quiet — also peek at the top strip.
+                        # Handles the trigger-only state: message is complete but long,
+                        # so "To AgentX" is at the top of the visible window while
+                        # "end message now" is still below the fold.
+                        _top_h = max(120, int((ry1 - ry0) * 0.15))
+                        try:
+                            _timg = ImageGrab.grab(
+                                bbox=(rx0, ry0, rx1, ry0 + _top_h), all_screens=True)
+                            _ttxt = pytesseract.image_to_string(
+                                _prepare_img_for_ocr(_timg), config="--psm 6")
+                            _has_trig = bool(TRIGGER_RE.search(_ttxt))
+                        except Exception:
+                            pass
+                        if not _has_trig:
+                            continue   # both strips quiet — skip full OCR
+                    _sig = (_has_trig, _has_sent)
+                    if _sig == self._last_strip_state.get(aid):
+                        continue   # same signal state — stale, skip full OCR
+                    self._last_strip_state[aid] = _sig
+                    self._update_pending_indicator(aid, _sig)
+                    self._log(f"[strip:{aid}] signal — full scan")
+                except Exception as _se:
+                    self._log(f"[strip:{aid}] err ({_se}) — full scan")
+            # ── End fast-strip pre-check ──────────────────────────────────────
+
             # Use ImageGrab (GDI/BitBlt) instead of mss for per-window captures.
             # mss uses DXGI which cannot capture GPU-accelerated windows like VS Code.
             # ImageGrab works with all windows regardless of renderer.
@@ -3262,9 +3850,71 @@ class SOCUltralight:
             # This stops stale relay messages (still visible in chat scroll) from being
             # re-routed every scan cycle. Body-match dedup is the second-layer backstop.
             text_h = hashlib.md5(text.encode()).hexdigest()
+
+            # Hash-stability tracker for agent1: runs BEFORE dedup so it fires even
+            # when content has stopped changing (dedup would otherwise skip the tick).
+            # While agent1 is typing its reply the hash changes every tick; once
+            # generation is complete the hash freezes.  After 8 frozen seconds we
+            # treat the response as done and launch force_scan via the clipboard path.
+            if (aid == "agent1"
+                    and self._waiting_reply == "agent1"
+                    and bool(TRIGGER_RE.search(text))):
+                if text_h != self._agent1_last_hash:
+                    self._agent1_last_hash = text_h
+                    self._agent1_hash_stable_since = time.time()
+                else:
+                    stable_secs = time.time() - self._agent1_hash_stable_since
+                    if (stable_secs >= 8.0
+                            and not self._force_scan_active.get(aid)
+                            and time.time() - self._agent1_copy_fail_at >= 15.0):
+                        self._log(
+                            f"[ocr:{aid}] hash stable {stable_secs:.0f}s "
+                            f"— generation complete, launching copy")
+                        self._agent1_last_hash = ""       # reset for next cycle
+                        self._agent1_hash_stable_since = time.time()
+                        threading.Thread(
+                            target=self._ocr_force_scan, args=(aid,), daemon=True).start()
+                        continue
+
+            # Hash-stability tracker for agent2: same principle as agent1 above.
+            # When agent2 is generating a long response the OCR hash changes each tick;
+            # once generation is done the hash freezes.  After 8 frozen seconds with the
+            # trigger visible but sentinel NOT visible (message too long for the window)
+            # we launch _ocr_force_scan_vscode() — the clipboard-based fallback.
+            if (aid == "agent2"
+                    and self._waiting_reply == "agent2"
+                    and bool(TRIGGER_RE.search(text))
+                    and not any(v in text.lower() for v in _SENTINEL_VARIANTS)):
+                if text_h != self._agent2_last_hash:
+                    self._agent2_last_hash = text_h
+                    self._agent2_hash_stable_since = time.time()
+                else:
+                    stable_secs = time.time() - self._agent2_hash_stable_since
+                    if (stable_secs >= 8.0
+                            and not self._force_scan_active.get(aid)
+                            and time.time() - self._agent2_copy_fail_at >= 15.0):
+                        self._log(
+                            f"[ocr:{aid}] hash stable {stable_secs:.0f}s "
+                            f"— long message, launching vscode clipboard scan")
+                        self._agent2_last_hash = ""
+                        self._agent2_hash_stable_since = time.time()
+                        self._force_scan_active[aid] = True
+                        threading.Thread(
+                            target=self._ocr_force_scan_vscode, daemon=True).start()
+                        continue
+
             if text_h == self._last_ocr_text.get(aid):
                 continue
             self._last_ocr_text[aid] = text_h
+
+            # Debug: log every content change so test harness can verify what SOC reads
+            low_snap  = text.lower()
+            _has_trig = bool(TRIGGER_RE.search(text))
+            _has_sent = any(v in low_snap for v in _SENTINEL_VARIANTS)
+            self._log(
+                f"[tick:{aid}] hash={text_h[:8]} chars={len(text.strip())} "
+                f"trigger={'YES' if _has_trig else 'no'} "
+                f"sentinel={'YES' if _has_sent else 'no'}")
 
             # Inject grace: suppress routing for a window after SOC sends the SOP to an
             # agent — prevents the SOP example relay lines from firing as live messages.
@@ -3278,6 +3928,31 @@ class SOCUltralight:
                 self._log(
                     f"[ocr:{aid}] trigger=YES sentinel={'YES' if has_sentinel else 'no'} "
                     f"hold={self._waiting_reply or 'none'}")
+            # Agent1 always uses the clipboard path — never OCR fragments or scroll
+            # accumulation.
+            #   _waiting_reply == None     → fresh outbound block; launch immediately
+            #   _waiting_reply == "agent1" → we sent to agent1 and are awaiting its reply.
+            #                               If trigger+sentinel both visible: launch now
+            #                               (short ack message is complete).
+            #                               If trigger-only: wait 30s from _waiting_since
+            #                               before launching (long message still generating).
+            #   _waiting_reply == other    → already upstream; block entirely
+            if has_trigger and aid == "agent1":
+                already_upstream = (self._waiting_reply and
+                                    self._waiting_reply != "agent1")
+                # Trigger-only while waiting for agent1's reply: block here.
+                # The hash-stability tracker (above, before dedup) fires force_scan
+                # once the hash freezes, signalling generation is complete.
+                # Trigger+sentinel both visible: launch immediately (short message).
+                still_waiting = (self._waiting_reply == "agent1" and not has_sentinel)
+                copy_cooling  = (time.time() - self._agent1_copy_fail_at < 15.0)
+                if (not self._force_scan_active.get(aid)
+                        and not already_upstream
+                        and not still_waiting
+                        and not copy_cooling):
+                    threading.Thread(
+                        target=self._ocr_force_scan, args=(aid,), daemon=True).start()
+                continue
             if has_trigger and not has_sentinel:
                 # Keep rapid mode alive while accumulating
                 self._rapid_until = time.time() + RAPID_DURATION
@@ -3335,6 +4010,8 @@ class SOCUltralight:
             elif self._scroll_accum_active.get(aid):
                 # Mid-scroll: neither trigger nor sentinel visible — just the body.
                 # Keep merging and scrolling until sentinel appears.
+                # Extend rapid mode so the scan rate stays fast throughout.
+                self._rapid_until = time.time() + RAPID_DURATION
                 elapsed = time.time() - self._scroll_accum_since.get(aid, time.time())
                 if elapsed > SCROLL_ACCUM_TIMEOUT:
                     self._log(f"[accum:{aid}] timeout ({elapsed:.0f}s) — clearing")
@@ -3349,6 +4026,16 @@ class SOCUltralight:
                     threading.Thread(
                         target=self._scroll_agent_down,
                         args=(aid,), daemon=True).start()
+            elif has_sentinel and not has_trigger and not self._force_scan_active.get(aid):
+                # Sentinel visible but trigger has scrolled above the fold.
+                # Agent1 exception: if we're already holding for a reply, don't hunt —
+                # the sentinel is from the previous message and will route on the next cycle.
+                if aid == "agent1" and self._waiting_reply:
+                    pass  # stale sentinel from already-routed message; wait for new trigger
+                else:
+                    self._log(f"[ocr:{aid}] sentinel-only — auto-hunt: scrolling up for trigger")
+                    threading.Thread(
+                        target=self._ocr_force_scan, args=(aid,), daemon=True).start()
             else:
                 self._ocr_process(text, source_agent=aid)
 
@@ -3567,8 +4254,30 @@ class SOCUltralight:
             self._log(f"[outbox] watching  outbox/agent1/  and  outbox/agent2/")
             self._log("         drop *.md file → injects content → clicks Send")
 
+    def _browse_agent3_outbox(self):
+        """Open a folder-picker and update the A3 Outbox path."""
+        import tkinter.filedialog as fd
+        folder = fd.askdirectory(title="Select agent3_outbox folder")
+        if folder:
+            self._agent3_outbox_var.set(folder)
+            self._on_outbox_path_change()
+
+    def _on_outbox_path_change(self):
+        """Validate and persist the agent3 outbox path; create processed/ subfolder."""
+        raw = self._agent3_outbox_var.get().strip()
+        if raw:
+            p = Path(raw)
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+                (p / "processed").mkdir(exist_ok=True)
+                self._log(f"[a3-outbox] watching: {p}")
+            except Exception as e:
+                self._log(f"[a3-outbox] path error: {e}")
+        self._save_config()
+
     def _fw_loop(self):
         while self._fw_running:
+            # ── Internal outbox: SOC-written files → inject into agents ──────
             for agent_id in ("agent1", "agent2", "agent3"):
                 inbox = OUTBOX_DIR / agent_id
                 try:
@@ -3587,11 +4296,71 @@ class SOCUltralight:
                         shutil.move(str(f), str(dest))
                     except Exception as e:
                         self._log(f"[outbox] {f.name} error: {e}")
+
+            # ── External agent3 outbox: Agent3-written files → route to agents
+            # File naming convention: [name]_to_agent1.md  or  [name]_to_agent2.md
+            # Stability gate: only route when file size unchanged across two polls.
+            raw_outbox = self._agent3_outbox_var.get().strip()
+            if raw_outbox:
+                ext_outbox = Path(raw_outbox)
+                try:
+                    new_files = sorted(ext_outbox.glob("*.md")) + sorted(ext_outbox.glob("*.txt"))
+                except OSError:
+                    new_files = []
+                for f in new_files:
+                    try:
+                        size_now = f.stat().st_size
+                        size_prev = self._agent3_outbox_seen.get(f.name)
+                        if size_prev is None:
+                            # First sighting — record size and wait for next poll
+                            self._agent3_outbox_seen[f.name] = size_now
+                            continue
+                        if size_now != size_prev:
+                            # Still changing — update and wait
+                            self._agent3_outbox_seen[f.name] = size_now
+                            continue
+                        # Size stable across two polls — safe to read
+                        self._agent3_outbox_seen.pop(f.name, None)
+
+                        # Parse target agent from filename: *_to_agent1.* or *_to_agent2.*
+                        import re as _re
+                        m = _re.search(r"_to_(agent[123])\.", f.name, _re.IGNORECASE)
+                        target_agent = m.group(1).lower() if m else None
+                        if not target_agent:
+                            self._log(f"[a3-outbox] {f.name} — no _to_agentN in name, skipping")
+                            # Archive anyway so it doesn't loop
+                            proc = ext_outbox / "processed"
+                            proc.mkdir(exist_ok=True)
+                            shutil.move(str(f), str(proc / f.name))
+                            continue
+
+                        content = f.read_text(encoding="utf-8").strip()
+                        if content:
+                            self._log(f"[a3-outbox] {f.name} → {target_agent} "
+                                      f"({len(content)} chars)")
+                            self._inject_to_agent(target_agent, content)
+                        else:
+                            self._log(f"[a3-outbox] {f.name} is empty — skipping")
+
+                        proc = ext_outbox / "processed"
+                        proc.mkdir(exist_ok=True)
+                        shutil.move(str(f), str(proc / f.name))
+                    except Exception as e:
+                        self._log(f"[a3-outbox] {f.name} error: {e}")
+
             time.sleep(OUTBOX_POLL)
 
     # ── Drag + helpers ────────────────────────────────────────────────────────
 
     def _log(self, msg: str):
+        # Mirror to staging/soc_debug.log so external tools can tail it
+        try:
+            log_dir = BASE_DIR / "staging"
+            log_dir.mkdir(exist_ok=True)
+            with open(log_dir / "soc_debug.log", "a", encoding="utf-8") as _lf:
+                _lf.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+        except Exception:
+            pass
         def _do():
             self.log.config(state="normal")
             self.log.insert("end", msg + "\n")
@@ -3683,9 +4452,9 @@ class SOCUltralight:
     # ── Config persistence ───────────────────────────────────────────────────────────────
 
     def _save_config(self):
-        """Persist window titles, prefix settings, and auto-click toggle states.
-        Coordinates are NOT saved — windows move between sessions so saved
-        pixel positions would be wrong. Templates find fresh coords every time."""
+        """Persist window titles, prefix settings, auto-click states, and
+        calibrated coordinates. Coordinates are saved so restart skips
+        template matching. Use Re-calibrate if windows have moved."""
         import json
         data = {}
         for aid, cfg in self.agents.items():
@@ -3693,9 +4462,21 @@ class SOCUltralight:
                 "window_title":   cfg.title if cfg.title != "(not set)" else None,
                 "prefix_enabled": cfg.prefix_enabled.get() if cfg.prefix_enabled else False,
                 "prefix_text":    cfg.prefix_var.get()     if cfg.prefix_var    else "",
-                "ocr_region":     list(cfg.ocr_region) if cfg.ocr_region else None,
+                "ocr_region":     list(cfg.ocr_region)    if cfg.ocr_region    else None,
+                "input_xy":       list(cfg.input_xy)      if cfg.input_xy      else None,
+                "send_xy":        list(cfg.send_xy)        if cfg.send_xy       else None,
+                "scroll_dn_xy":   list(cfg.scroll_dn_xy)  if cfg.scroll_dn_xy  else None,
             }
-        data["project_name"]   = self._project_name_var.get()
+            # Save window rect for Snap to Grid
+            if cfg.hwnd:
+                try:
+                    import win32gui as _w
+                    r = _w.GetWindowRect(cfg.hwnd)
+                    data[aid]["window_rect"] = [r[0], r[1], r[2]-r[0], r[3]-r[1]]
+                except Exception:
+                    pass
+        data["project_name"]      = self._project_name_var.get()
+        data["agent3_outbox_path"] = self._agent3_outbox_var.get()
         data["bypass_agent3"]  = self._bypass_agent3
         # Auto-click toggle states keyed by template stem
         data["autoclick"] = {
@@ -3708,8 +4489,8 @@ class SOCUltralight:
 
     def _load_config(self):
         """Load config.json → restore window titles, prefix settings,
-        and auto-click toggle states. Coordinates are always found fresh
-        by template matching on startup."""
+        auto-click toggle states, and calibrated coordinates.
+        Recalibrate manually if windows have moved since last save."""
         if not CONFIG_FILE.exists():
             return
         import json
@@ -3733,8 +4514,22 @@ class SOCUltralight:
                 if cfg.lbl_region:
                     cfg.lbl_region.config(
                         text=f"region: {w}x{h}px ({x1},{y1})", fg=GREEN)
+            if d.get("input_xy"):
+                cfg.input_xy = tuple(d["input_xy"])
+                if cfg.lbl_input:
+                    cfg.lbl_input.config(
+                        text=f"input: {cfg.input_xy}", fg=GREEN)
+            if d.get("send_xy"):
+                cfg.send_xy = tuple(d["send_xy"])
+                if cfg.lbl_send:
+                    cfg.lbl_send.config(
+                        text=f"send: {cfg.send_xy}", fg=GREEN)
+            if d.get("scroll_dn_xy"):
+                cfg.scroll_dn_xy = tuple(d["scroll_dn_xy"])
         if data.get("project_name"):
             self._project_name_var.set(data["project_name"])
+        if data.get("agent3_outbox_path"):
+            self._agent3_outbox_var.set(data["agent3_outbox_path"])
         # Restore agent3 bypass state (default True if not in config)
         self._bypass_agent3 = data.get("bypass_agent3", True)
         if hasattr(self, "_a3_bypass_btn"):
@@ -3819,6 +4614,49 @@ class SOCUltralight:
     # Thin buttons (scroll arrows) work fine — OpenCV sub-pixel matching.
     # Multi-step sequences: Scroll Read uses scroll_dn_xy in a loop.
 
+    def _snap_to_grid(self):
+        """Move each agent window back to its last saved position.
+        Useful after a restart when windows open in wrong spots."""
+        import json, win32gui, win32con
+        if not CONFIG_FILE.exists():
+            self._set_status("No saved grid — calibrate first")
+            return
+        try:
+            data = json.loads(CONFIG_FILE.read_text())
+        except Exception:
+            self._set_status("Config read error")
+            return
+        snapped = 0
+        for aid, cfg in self.agents.items():
+            rect = data.get(aid, {}).get("window_rect")
+            if not rect or not cfg.hwnd:
+                continue
+            try:
+                x, y, w, h = rect
+                win32gui.ShowWindow(cfg.hwnd, win32con.SW_RESTORE)
+                win32gui.MoveWindow(cfg.hwnd, x, y, w, h, True)
+                snapped += 1
+                self._log(f"[grid] {aid} snapped to ({x},{y}) {w}x{h}")
+            except Exception as e:
+                self._log(f"[grid] {aid} snap failed: {e}")
+        self._set_status(f"Snapped {snapped} window(s) to saved grid positions")
+
+    def _recalibrate(self):
+        """Clear saved coordinates for all agents and run fresh template matching.
+        Use when windows have moved or UI has changed since last calibration."""
+        for cfg in self.agents.values():
+            cfg.input_xy     = None
+            cfg.send_xy      = None
+            cfg.scroll_dn_xy = None
+            cfg.scroll_up_xy = None
+            if cfg.lbl_input:
+                cfg.lbl_input.config(text="input: —", fg=FG)
+            if cfg.lbl_send:
+                cfg.lbl_send.config(text="send: —", fg=FG)
+        self._log("[cal] saved coordinates cleared — running fresh calibration")
+        self._set_status("Re-calibrating…")
+        threading.Thread(target=self._auto_calibrate, daemon=True).start()
+
     def _auto_calibrate(self):
         """Screenshot → match all templates → fill agent coordinates."""
         if not _CV2_OK:
@@ -3881,14 +4719,24 @@ class SOCUltralight:
             cfg  = self.agents[aid]
             x, y = xy
 
-            # Reject matches that fall outside the agent's known window rect.
-            # Prevents false positives when a template accidentally matches a
-            # UI element in a different part of the screen.
-            if cfg.ocr_region:
+            # Bounds check: scroll buttons must be inside the OCR region (the chat area).
+            # Input fields and send buttons are in the toolbar BELOW the OCR region —
+            # they are intentionally excluded from this check.
+            if role in ("scroll_dn", "scroll_up") and cfg.ocr_region:
                 rx0, ry0, rx1, ry1 = cfg.ocr_region
                 if not (rx0 <= x <= rx1 and ry0 <= y <= ry1):
-                    self._log(f"[cal] {aid}.{role} → ({x},{y}) outside window — skipped")
+                    self._log(f"[cal] {aid}.{role} → ({x},{y}) outside OCR region — skipped")
                     return
+            elif role in ("input", "send") and cfg.hwnd:
+                # For input/send: reject only if truly outside the window frame
+                try:
+                    import win32gui as _wg
+                    r = _wg.GetWindowRect(cfg.hwnd)
+                    if not (r[0] <= x <= r[2] and r[1] <= y <= r[3]):
+                        self._log(f"[cal] {aid}.{role} → ({x},{y}) outside window — skipped")
+                        return
+                except Exception:
+                    pass
 
             # ── Update training registry ──────────────────────────────────
             key = f"{stem}.png"
@@ -3917,21 +4765,25 @@ class SOCUltralight:
                 self._log(f"[cal] {aid}.{role} → ({x},{y})  "
                           f"conf={conf:.2f}  [{bar}] {n}/{needed}")
 
-            # ── Fill agent config slot ────────────────────────────────────
+            # ── Fill agent config slot (never overwrite manually set coords) ──
             def _ui(r=role, c=cfg, px=x, py=y, trained=rec["trained"]):
                 colour = GREEN if trained else ACCENT
                 if r == "input":
-                    c.input_xy = (px, py)
-                    c.lbl_input.config(text=f"input field: ({px},{py})", fg=colour)
+                    if c.input_xy is None:
+                        c.input_xy = (px, py)
+                    c.lbl_input.config(text=f"input field: ({c.input_xy})", fg=colour)
                 elif r == "send":
-                    c.send_xy = (px, py)
-                    c.lbl_send.config(text=f"send button: ({px},{py})", fg=colour)
+                    if c.send_xy is None:
+                        c.send_xy = (px, py)
+                    c.lbl_send.config(text=f"send button: ({c.send_xy})", fg=colour)
                 elif r == "scroll_dn":
-                    c.scroll_dn_xy = (px, py)
-                    c.lbl_scroll.config(text=f"scroll↓: ({px},{py})", fg=colour)
+                    if c.scroll_dn_xy is None:
+                        c.scroll_dn_xy = (px, py)
+                    c.lbl_scroll.config(text=f"scroll↓: ({c.scroll_dn_xy})", fg=colour)
                 elif r == "scroll_up":
-                    c.scroll_up_xy = (px, py)
-                    c.lbl_scroll.config(text=f"scroll↑↓: ({px},{py})", fg=colour)
+                    if c.scroll_up_xy is None:
+                        c.scroll_up_xy = (px, py)
+                    c.lbl_scroll.config(text=f"scroll↑↓: ({c.scroll_up_xy})", fg=colour)
             self.root.after(0, _ui)
             return
 
@@ -4084,8 +4936,9 @@ class SOCUltralight:
                 return self._find_template(png.name)
         return None
 
-    def _find_template(self, name: str) -> tuple | None:
-        """Find a single named template on screen. Returns (x,y) centre or None."""
+    def _find_template(self, name: str, thresh: float = TEMPLATE_THRESH) -> tuple | None:
+        """Find a single named template on screen. Returns (x,y) centre or None.
+        thresh overrides TEMPLATE_THRESH for templates that need a looser match."""
         if not _CV2_OK:
             return None
         tpl_path = TEMPLATE_DIR / name
@@ -4102,8 +4955,36 @@ class SOCUltralight:
         th, tw = tpl.shape
         res = cv2.matchTemplate(gray, tpl, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
-        if max_val >= TEMPLATE_THRESH:
+        if max_val >= thresh:
             return (max_loc[0] + tw // 2, max_loc[1] + th // 2)
+        return None
+
+    def _find_template_at(self, name: str, cx: int, cy: int,
+                          margin: int = 60, thresh: float = TEMPLATE_THRESH) -> tuple | None:
+        """Like _find_template but searches only within margin pixels of (cx, cy).
+        Much faster and more reliable when the button is always at a known screen position."""
+        if not _CV2_OK:
+            return None
+        tpl_path = TEMPLATE_DIR / name
+        if not tpl_path.exists():
+            return None
+        tpl = self._safe_imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+        if tpl is None:
+            return None
+        th, tw = tpl.shape
+        x0, y0 = max(0, cx - margin), max(0, cy - margin)
+        x1, y1 = cx + margin, cy + margin
+        with _mss_ctor() as sct:
+            raw = sct.grab({"left": x0, "top": y0, "width": x1 - x0, "height": y1 - y0})
+            gray = cv2.cvtColor(
+                np.array(Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")),
+                cv2.COLOR_RGB2GRAY)
+        if gray.shape[0] < th or gray.shape[1] < tw:
+            return None
+        res = cv2.matchTemplate(gray, tpl, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        if max_val >= thresh:
+            return (x0 + max_loc[0] + tw // 2, y0 + max_loc[1] + th // 2)
         return None
 
     # ── Scroll-while-read ─────────────────────────────────────────────────────
@@ -4182,8 +5063,9 @@ class SOCUltralight:
         self._set_status("Scroll read: no message found")
 
     def _merge_scroll_text(self, existing: str, new_text: str) -> str:
-        """Return lines from new_text that don't already appear in the
-        last 25 lines of existing — handles overlapping scroll views."""
+        """Append lines from new_text that don't already appear in the
+        last 25 lines of existing, then return the full combined buffer.
+        Handles overlapping scroll views — each merge grows the buffer."""
         if not existing.strip():
             return new_text
         tail = {ln.strip().lower()
@@ -4191,7 +5073,9 @@ class SOCUltralight:
                 if ln.strip()}
         fresh = [ln for ln in new_text.splitlines()
                  if ln.strip().lower() not in tail]
-        return "\n".join(fresh)
+        if not fresh:
+            return existing
+        return existing.rstrip("\n") + "\n" + "\n".join(fresh)
 
     # ── Mode system ───────────────────────────────────────────────────────────
 
@@ -4262,9 +5146,12 @@ class SOCUltralight:
             self._set_status("Agent 2 window not set — click Set Win after focusing it")
             return
         self._inject_grace["agent2"] = time.time() + 25
+        sop = AGENT2_SOP
+        if self._agent3_outbox_var.get().strip():
+            sop = sop + AGENT2_OUTBOX_NOTE
         threading.Thread(
             target=self._inject_to_agent,
-            args=("agent2", AGENT2_SOP),
+            args=("agent2", sop),
             kwargs={"bypass_mode_check": True},
             daemon=True).start()
         self._log("[mode] Agent2 SOP sent — 25s OCR grace active")
@@ -4326,6 +5213,9 @@ class SOCUltralight:
                 project=project,
                 git_log=git_log,
                 stack=stack_notes or "(not specified — run general audit)")
+            outbox_path = self._agent3_outbox_var.get().strip()
+            if outbox_path:
+                sop += AGENT3_OUTBOX_PROTOCOL.format(outbox_path=outbox_path)
 
             soc_dir     = os.path.dirname(os.path.abspath(__file__))
             staging_dir = os.path.join(soc_dir, "staging")
@@ -4436,6 +5326,8 @@ class SOCUltralight:
                 project=project,
                 git_log=git_log,
                 user_report=user_report)
+            # Phase 3 is free-form human↔Agent3 debugging — no outbox routing.
+            # Agent3 communicates directly with the user and uses pc.py tools.
 
             # Write to staging/ inside the SOC Ultralight source folder so it is
             # included in source backups, but naturally quarantined — agents only
