@@ -3600,7 +3600,7 @@ class SOCUltralight:
         for hover_y in (ry1 - 120, ry1 - 80, ry1 - 41):
             pyautogui.moveTo(fb_x, hover_y, duration=0.25)
             time.sleep(0.55)
-            copy_xy = self._find_template("Copilot_copy_button.PNG")
+            copy_xy = self._find_template_at("Copilot_copy_button.PNG", fb_x, hover_y, margin=80)
             if copy_xy:
                 self._log(f"[nudge:{agent_id}] copy button at {copy_xy} (hover_y={hover_y})")
                 break

@@ -20,6 +20,28 @@ Point it at Bing Copilot and Claude in VS Code. SOC watches both windows via OCR
 
 ---
 
+## Token Economics
+
+The default configuration puts Bing Copilot (free) in the planner seat. That choice has real cost implications.
+
+The planner carries the expensive context — the full project spec, every block it has delivered, every confirmation it has received. By the time a project reaches its 20th instruction block, the planner's input context is 40,000–60,000 tokens per message. Over a full session that accumulates to **400,000+ input tokens** from the planner alone.
+
+With a paid API model in that seat:
+
+| Model | ~400k input tokens | ~18k output tokens | Session cost |
+|---|---|---|---|
+| Claude Sonnet | $1.20 | $0.27 | **~$1.50** |
+| Claude Opus | $6.00 | $1.35 | **~$7.35** |
+| GPT-4o | $1.00 | $0.18 | **~$1.20** |
+
+With Bing Copilot: **$0**.
+
+The builder (Agent 2) stays cheap by design — it only ever sees one instruction block at a time (~1,000 tokens), never the full project context. SOC enforces this split. The planner holds the brain; the builder executes a single targeted task. Across a multi-session project the total savings reach **$20–50+** compared to running both agents on paid APIs.
+
+The protocol also protects your Claude Code budget: rather than one massive spec dump that burns a large context window upfront, blocks arrive in sequence and each response is small. Claude Code spends its capacity on implementation, not re-reading the project description on every turn.
+
+---
+
 ## What It Does
 
 **Phase 1 — Design**  
