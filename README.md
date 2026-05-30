@@ -44,7 +44,7 @@ The future of debugging: Claude + screenshot vision + mouse automation. Describe
 - **OCR + clipboard routing** — reads agent windows directly; no browser extensions, no plugins, no injection scripts
 - **File-based large-message routing** — Agent 3 delivers long responses (audit findings, chapter drafts) as files; SOC routes them without scrolling or OCR limits
 - **Manual nudge controls** — when automation stalls, point SOC at the stuck element and push through; works at any step
-- **Healing data** — every manual nudge logs position and outcome; the pattern data feeds future automation improvements over time
+- **Healing data** — every manual nudge logs position and outcome; the system learns from repetition so manual intervention becomes rarer over time
 
 ---
 
@@ -100,6 +100,18 @@ Full setup, calibration, and workflow instructions live in the [`instructions/`]
 | [05_controls_reference.txt](instructions/05_controls_reference.txt) | Every button, field, and log prefix explained |
 | [06_message_protocol.txt](instructions/06_message_protocol.txt) | Agent message format, mode-switch command, workspace rules |
 | [07_troubleshooting.txt](instructions/07_troubleshooting.txt) | Common issues and fixes |
+
+---
+
+## Built to Learn
+
+SOC does not stay static. Every time you manually guide it past a stall — pointing your cursor at the stuck button and firing the nudge — it logs what happened: which agent, where on screen, and whether the click succeeded. Over a handful of sessions that data becomes a fingerprint of your specific setup.
+
+The next iteration turns that fingerprint into a **first-attempt heuristic**: before running the full hover sweep, SOC checks the cluster of positions that previously worked. If the button is where it usually is, the sequence completes without any sweep at all. If it misses, the sweep runs as a fallback and the new result updates the log.
+
+Three or four successful nudges at the same spot is enough for the system to stop needing your help at that step. The pattern generalises — any element that keeps stalling, on any agent window, becomes a candidate for learned targeting.
+
+This is the core of what SOC is becoming: **a system that observes its own failure points and narrows them down with use.** The architecture already supports it. The log is already running.
 
 ---
 
