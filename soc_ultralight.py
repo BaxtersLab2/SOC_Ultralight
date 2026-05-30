@@ -3811,17 +3811,52 @@ class SOCUltralight:
             self._log(
                 f"[cursor-nudge] copy confirmed — {len(text.strip())} chars — "
                 f"trigger={has_trigger} sentinel={has_sentinel}")
+
+            # Trigger present but sentinel missing: sentinel was below the fold.
+            # Scroll source window to absolute bottom and re-copy once automatically.
+            if has_trigger and not has_sentinel:
+                self._log(
+                    "[cursor-nudge] sentinel missing — scrolling to bottom and re-copying")
+                cfg_src = self.agents.get(agent_id)
+                if cfg_src and cfg_src.ocr_region:
+                    rx0, ry0, rx1, ry1 = cfg_src.ocr_region
+                    chat_x = (rx0 + rx1) // 2
+                    chat_y = (ry0 + ry1) // 2
+                    pyautogui.click(chat_x, chat_y)
+                    time.sleep(0.2)
+                    pyautogui.hotkey("ctrl", "end")
+                    time.sleep(0.25)
+                    pyautogui.press("end")
+                    time.sleep(0.25)
+                    pyautogui.scroll(-15, x=chat_x, y=chat_y)
+                    time.sleep(0.5)
+                pyperclip.copy("")
+                pyautogui.click(x, y)      # re-click the copy button at same position
+                time.sleep(0.7)
+                text2 = pyperclip.paste()
+                if text2 and text2.strip():
+                    has_sentinel = any(v in text2.lower() for v in _SENTINEL_VARIANTS)
+                    self._log(
+                        f"[cursor-nudge] re-copy — {len(text2.strip())} chars — "
+                        f"sentinel={has_sentinel}")
+                    text = text2
+
             if not has_trigger:
                 self._log(
-                    "[cursor-nudge] ⚠ no 'To AgentX' header in clipboard — "
-                    "agent may not have used routing format, or copy captured wrong area")
-            if not has_sentinel:
+                    "[cursor-nudge] ⚠ no 'To AgentX' in clipboard — "
+                    "check agent used routing format")
+            elif not has_sentinel:
+                # Sentinel still missing after scroll+re-copy.
+                # User explicitly fired the nudge = confirmation message is complete.
+                # Append sentinel so routing can proceed.
                 self._log(
-                    "[cursor-nudge] ⚠ no 'end message now' in clipboard — "
-                    "agent may still be generating; wait and nudge again")
+                    "[cursor-nudge] sentinel still absent — appending for manual nudge route")
+                text = text.rstrip() + "\nend message now"
+                has_sentinel = True
+
             self._log("[cursor-nudge] spillway → inject body → target agent input → click send")
             self.root.after(0, lambda: self._set_status(
-                f"📍 Copy nudge: {'routing' if has_trigger and has_sentinel else '⚠ format issue'} "
+                f"📍 Copy nudge: {'routing' if has_trigger else '⚠ no trigger'} "
                 f"— {len(text.strip())} chars as {agent_id}"))
             self._last_ocr_text.pop(agent_id, None)
             self._ocr_process(text, source_agent=agent_id)
