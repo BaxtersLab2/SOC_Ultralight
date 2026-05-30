@@ -1,0 +1,103 @@
+SOC ULTRALIGHT — CONTROLS REFERENCE
+=====================================
+
+
+PHASE 1 — CALIBRATION
+----------------------
+  Set Win          Capture window handle for an agent (5s timer — switch
+                   to agent window before timer ends)
+  Cal              Run auto-calibration via OpenCV template matching.
+                   Locates input fields, Send buttons, scroll buttons.
+  Re-calibrate     Re-run calibration (use if window has moved).
+  Snap to Grid     Snap agent windows to a side-by-side grid layout.
+  Region           Draw OCR region for an agent (click and drag).
+  Set Input        Manually capture input field coordinates (hover + timer).
+  Set Send         Manually capture Send button coordinates (hover + timer).
+
+
+PHASE 2 — ROUTING CONTROLS
+----------------------------
+  Agent 1 SOP      Send Agent 1's Standard Operating Procedure to its window.
+  Agent 2 SOP      Send Agent 2's SOP to its window.
+  Start OCR        Begin OCR watcher. Scans every 0.5s normally, 0.3s rapid.
+  Stop OCR         Stop the watcher.
+  Release          Release hold manually. Clears hold and same-body dedup.
+  Hold A1          Block routing TO Agent 1 (one-shot gate).
+  Hold A2          Block routing TO Agent 2 (one-shot gate).
+  Pause            Pause all routing globally (OCR keeps scanning).
+  Resume           Resume routing. Clears body-match guards for fresh route.
+
+OCR STATUS LABELS
+  "OCR: scanning..."       Normal — windows being scanned.
+  "OCR: RAPID"             Rapid scan active (triggered by "To Agent" on screen).
+  "OCR: waiting agentX..."  Hold active — waiting for that agent to reply.
+
+
+NUDGE ROW
+----------
+  A1 / A2 / A3     Per-agent force-scan buttons. Fires an immediate full OCR
+                   scan for that agent, bypassing dedup. Also starts the
+                   clipboard read sequence for Agent 1 (Copilot).
+
+  Read Clip        General clipboard injector. Routes whatever is currently
+                   in the clipboard as output from the active agent. Use when
+                   SOC stalls at any copy step: manually copy the content,
+                   then hit Read Clip.
+
+  5s Nudge         5-second countdown, then clicks wherever your mouse is.
+                   Position mouse over the stuck UI element before the timer.
+                   - If clipboard fills after click: routes it (copy element)
+                   - If clipboard empty after click: fires force_scan to
+                     continue the sequence (nav element like scroll/arrow)
+                   Works at any stall point. Logs position + outcome to
+                   nudge_log.json for future healing.
+
+
+OTHER CONTROLS
+--------------
+  Outbox           Start/stop the internal file outbox watcher.
+  VS Code mode     One-click: starts outbox watcher + auto-click scan.
+  Bing mode        Enable Bing Copilot-aware timing (double-click focus,
+                   Send button polling after paste).
+  A3 Outbox:       Path to agent3_outbox folder for file-routed responses.
+                   Browse button opens folder picker. SOC creates the folder
+                   tree and processed/ subfolder automatically.
+  Project:         Active project name. SOC prepends it to Agent 1 messages.
+  Welfare Check    Send a re-sync prompt to both agents showing last messages.
+
+
+AUTO-CLICK PANEL
+----------------
+  Toggle "auto" next to any template to enable auto-clicking.
+  Templates marked with a lock icon are routing infrastructure — cannot be
+  toggled off (input fields, Send buttons, send_message buttons).
+
+  To add a new auto-click template:
+    1. Screenshot the button (PNG, native resolution).
+    2. Save to buttons database/ with a descriptive name.
+    3. Click Refresh in the Auto-Click panel.
+    4. Click Train — SOC hides, you click the real button within 15s.
+    5. Enable the auto checkbox.
+
+
+PENDING INDICATORS (DOT + LABEL)
+---------------------------------
+  Grey dot    Idle — no message pending for this agent.
+  Orange dot  Trigger or sentinel visible in OCR — message pending.
+  Green dot   Message successfully routed (flashes, then returns to idle).
+
+
+LOG PREFIXES
+------------
+  [ocr:agentX]     OCR scan result. trigger=YES means "To AgentX" seen.
+                   sentinel=YES means "end message now" also seen.
+  [->agentX]       Message routed and injected into that agent.
+  [nudge:agentX]   Force-scan step progress (down arrow, copy button, etc.)
+  [clip-read]      Clipboard injector (Read Clip button).
+  [cursor-nudge]   5s nudge button — click position and outcome logged.
+  [a3-outbox]      Agent 3 external outbox file detected and routed.
+  [recal]          Anti-drift reminder prepended to a message.
+  [cal]            Auto-calibration match results.
+  [auto-click]     Template matched and clicked automatically.
+  [mode]           Mode switch (MODULE BLOCK <-> IMPLEMENTATION).
+  [outbox]         Internal outbox file injected.

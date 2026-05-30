@@ -1,0 +1,76 @@
+SOC ULTRALIGHT — OVERVIEW
+=========================
+
+WHAT IS IT
+----------
+SOC Ultralight (Screen OCR Controller) is a lightweight Windows widget that
+orchestrates AI agents across your screen. It watches agent chat windows via
+OCR, intercepts protocol messages, and routes them automatically — no API
+keys, no cloud bridge, no browser extensions.
+
+The result: a team of AI agents that coordinate with each other while you
+watch and direct the overall project.
+
+
+CONFIGURATIONS
+--------------
+SOC works in 2-agent mode or 3-agent mode.
+
+2-AGENT (standard — no Claude session required)
+
+  Agent 1 (Planner)  <->  SOC Ultralight  <->  Agent 2 (Implementer)
+
+  Agent 1 designs the project and delivers numbered module blocks one at a
+  time. Agent 2 stores them and implements in order. SOC routes everything.
+  This mode alone produces a finished application from a well-scoped prompt.
+
+3-AGENT (extended)
+
+  Agent 1 (Planner)  <->  SOC  <->  Agent 2 (Implementer)
+                                          |
+                                     Agent 3 (Auditor / Improver)
+
+  Agent 3 handles the project improvement pass (Phase 1a), the security
+  audit (Phase 2a), and optionally the debug phase (Phase 3). Agent 3
+  delivers large responses as files via the agent3_outbox folder — SOC
+  reads them and routes without scrolling.
+
+
+AGENT SLOTS
+-----------
+  Agent 1  Architect / Planner       Bing Copilot, GPT-4.5, or similar
+  Agent 2  Primary Implementer       Claude Code in VS Code (recommended)
+  Agent 3  Auditor / Improver        Claude Code CLI, claude.ai, or similar
+
+The SOP (Standard Operating Procedure) is the role. Any sufficiently capable
+LLM that can follow structured instructions can fill any slot. SOC is not
+tied to specific products or models.
+
+
+THE GUIDED WORKFLOW
+-------------------
+SOC guides you through four phases:
+
+  Phase 1    Calibrate windows, set OCR regions (one time, saved)
+  Phase 1a   Define and refine the project before any code is written
+  Phase 2    Automated routing — agents build the project
+  Phase 2a   Security audit before first push (optional, Agent 3)
+  Phase 3    Claude-powered debug loop (optional, Agent 3)
+
+See the individual instruction files for each phase.
+
+
+FILE ROUTING (AGENT 3 OUTBOX)
+------------------------------
+For large Agent 3 responses (security audits, improvement summaries),
+SOC uses a file-based channel instead of OCR scrolling:
+
+  1. User creates: source/module_blocks/agent3_outbox/
+  2. User sets this path in SOC's "A3 Outbox:" field
+  3. Agent 3 writes its response to: agent3_outbox/[name]_to_agent2.md
+  4. Agent 3 sends a short chat notification: OUTBOX: [filename]
+  5. SOC detects the file, reads it, pastes to Agent 2's input, clicks Send
+  6. File is archived to agent3_outbox/processed/
+
+Agent 2 receives the content as a normal pasted message — it never reads
+files directly. SOC is the only one doing file I/O.

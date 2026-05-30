@@ -1545,6 +1545,28 @@ class SOCUltralight:
                                         font=("Segoe UI", 7, "italic"))
             _cfg.lbl_pending.pack(side="left", padx=(2, 0))
 
+        # Manual override row: bypass hover/template when SOC stalls at a UI step
+        manual_row = tk.Frame(p, bg=BG, pady=1)
+        manual_row.pack(fill="x", padx=12)
+        tk.Button(
+            manual_row, text="📋 Read Clip",
+            command=lambda: threading.Thread(
+                target=self._manual_clip_read, daemon=True).start(),
+            bg=BG2, fg="#4ec9b0", relief="flat", font=("Segoe UI", 8),
+            cursor="hand2", padx=6, pady=2
+        ).pack(side="left")
+        tk.Button(
+            manual_row, text="📍 5s Nudge",
+            command=lambda: threading.Thread(
+                target=self._cursor_nudge, daemon=True).start(),
+            bg=BG2, fg="#4ec9b0", relief="flat", font=("Segoe UI", 8),
+            cursor="hand2", padx=6, pady=2
+        ).pack(side="left", padx=(4, 0))
+        tk.Label(
+            manual_row, text="hover target → nudge clicks it + reads clip",
+            bg=BG, fg="#444444", font=("Segoe UI", 7, "italic")
+        ).pack(side="left", padx=(6, 0))
+
         welfare_row = tk.Frame(p, bg=BG, pady=2)
         welfare_row.pack(fill="x", padx=12)
         tk.Button(
@@ -3597,6 +3619,95 @@ class SOCUltralight:
         # _route_text (called inside _ocr_process) sets _waiting_reply = "agent2".
         # That flag is the sequence gate — force_scan will not re-fire until
         # agent2's reply has been received and sent into agent1's input.
+
+    def _nudge_active_agent(self) -> str:
+        """Return the agent that SOC is currently working on / waiting for.
+        Used by clipboard read and cursor nudge to auto-target the right source."""
+        # If we're waiting for an agent to reply, that's the active one
+        if self._waiting_reply:
+            return self._waiting_reply
+        # Otherwise default to agent1 (most common stall point)
+        return "agent1"
+
+    def _manual_clip_read(self):
+        """General clipboard injector — routes whatever is in the clipboard right now
+        as output from the currently active agent.  Works for any stall point: user
+        manually clicks whatever copy/export button SOC couldn't find, then hits Read Clip.
+        SOC injects the content into the routing pipeline exactly as if it read it itself."""
+        agent_id = self._nudge_active_agent()
+        text = pyperclip.paste()
+        if not text or not text.strip():
+            self._log("[clip-read] clipboard empty — copy content from the agent window first")
+            self.root.after(0, lambda: self._set_status("📋 Clipboard empty — copy first"))
+            return
+        self._log(f"[clip-read] {len(text.strip())} chars — injecting as {agent_id}")
+        self.root.after(0, lambda: self._set_status(
+            f"📋 Injecting {len(text.strip())} chars as {agent_id}…"))
+        self._last_ocr_text.pop(agent_id, None)
+        self._ocr_process(text, source_agent=agent_id)
+
+    def _cursor_nudge(self, delay: int = 5):
+        """General sequence nudge — 5s countdown then clicks wherever the user's mouse is.
+        After clicking, detects what kind of element was hit:
+          • Clipboard filled  → copy button — route clipboard as active agent output
+          • Clipboard empty   → nav element (scroll arrow, button, etc.) — fire force_scan
+                                to continue the sequence from the next step
+        This works at ANY stall point: down arrow, copy button, send button, etc.
+        Position + outcome are logged to nudge_log.json for future healing."""
+        agent_id = self._nudge_active_agent()
+        for i in range(delay, 0, -1):
+            self.root.after(0, lambda n=i: self._set_status(
+                f"📍 [{agent_id}] move mouse to stuck element — clicking in {n}s…"))
+            time.sleep(1)
+        x, y = pyautogui.position()
+        self.root.after(0, lambda: self._set_status(f"📍 Clicking ({x},{y}) for {agent_id}…"))
+        self._log(f"[cursor-nudge] agent={agent_id} click=({x},{y})")
+        pyperclip.copy("")
+        pyautogui.click(x, y)
+        time.sleep(0.7)
+        text = pyperclip.paste()
+
+        # Determine what the click did and respond accordingly
+        if text and text.strip():
+            # Copy-type element — clipboard filled — route it
+            outcome = "routed"
+            self._log(f"[cursor-nudge] copy element — {len(text.strip())} chars → routing as {agent_id}")
+            self.root.after(0, lambda: self._set_status(
+                f"📍 Copy nudge: routed {len(text.strip())} chars as {agent_id}"))
+            self._last_ocr_text.pop(agent_id, None)
+            self._ocr_process(text, source_agent=agent_id)
+        else:
+            # Navigation element (scroll arrow, down arrow, etc.) — continue sequence
+            outcome = "nav_continue"
+            self._log(f"[cursor-nudge] nav element — resuming force_scan for {agent_id}")
+            self.root.after(0, lambda: self._set_status(
+                f"📍 Nav nudge: continuing {agent_id} sequence…"))
+            # Clear stale active flag so force_scan can fire, then resume
+            self._force_scan_active[agent_id] = False
+            threading.Thread(
+                target=self._ocr_force_scan, args=(agent_id,), daemon=True).start()
+
+        # Log position + outcome for future healing / pattern detection
+        try:
+            import json as _json
+            log_path = BASE_DIR / "nudge_log.json"
+            entries = []
+            if log_path.exists():
+                try:
+                    entries = _json.loads(log_path.read_text(encoding="utf-8"))
+                except Exception:
+                    entries = []
+            cfg = self.agents.get(agent_id)
+            entries.append({
+                "ts": datetime.now().isoformat(),
+                "agent": agent_id,
+                "click_xy": [x, y],
+                "ocr_region": list(cfg.ocr_region) if cfg and cfg.ocr_region else None,
+                "outcome": outcome,
+            })
+            log_path.write_text(_json.dumps(entries[-200:], indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _ocr_force_scan_vscode(self):
         """Clipboard-based read path for agent2 (VS Code Claude) — long-message fallback.

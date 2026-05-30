@@ -1,0 +1,142 @@
+SOC ULTRALIGHT — PHASE 2: THE BUILD
+=====================================
+
+This phase begins after Phase 1a is complete and "Begin Workflow" has
+been clicked. SOC takes over routing — your job is to watch and intervene
+only when something stalls.
+
+
+SEND THE SOPS
+-------------
+Before starting, each agent needs its operating instructions.
+
+  1. Click "Agent 2 SOP" — sends protocol instructions to Agent 2.
+     Agent 2 learns its exact reply format and confirmation rules.
+  2. Click "Agent 1 SOP" — sends the workflow structure to Agent 1.
+     Agent 1 learns the module block format and delivery process.
+
+Send Agent 2's SOP first so it is ready before Agent 1 begins.
+
+
+START OCR
+---------
+Click "Start OCR".
+
+The button turns red and the status shows "OCR: scanning..."
+SOC is now watching both agent windows.
+
+
+THE LOOP
+--------
+Once both SOPs are delivered and OCR is running:
+
+  1. Agent 1 writes a module block addressed to Agent 2 and ends it
+     with "end message now".
+  2. SOC detects it in Agent 1's OCR region, routes it to Agent 2's
+     input field, and clicks Send.
+  3. Agent 2 saves the block and replies:
+       To Agent1
+       module block A-1 saved, ready for next block
+       end message now
+  4. SOC detects Agent 2's reply and routes it back to Agent 1.
+  5. Agent 1 sends the next block. Repeat.
+
+
+ENDING THE BLOCK PHASE
+-----------------------
+When all blocks are sent and confirmed, Agent 1 sends:
+
+  To Agent2
+  [SOC:EXECUTE]
+  All instruction blocks have been sent and confirmed by Agent 2.
+  Begin implementation in alphanumeric order now.
+  end message now
+
+SOC detects [SOC:EXECUTE] in the body, switches to IMPLEMENTATION MODE,
+and routes the message to Agent 2.
+
+Only this exact token triggers the switch. Natural-language phrases
+containing "implement" or "execute" inside block bodies are blocked.
+
+
+IMPLEMENTATION PHASE
+---------------------
+Agent 2 implements all stored blocks in alphanumeric order (A1, A2, B1...).
+
+If it hits a blocker:
+  To Agent1
+  PROBLEM: <one sentence>
+  QUESTION: <what it needs>
+  end message now
+
+When implementation is complete:
+  To Agent1
+  implementation of instruction blocks is complete
+  end message now
+
+SOC detects this phrase and switches back to MODULE BLOCK MODE.
+
+
+HOLD STATE
+----------
+After routing a message, SOC holds — it waits for a reply before sending
+the next message. This prevents pile-ups.
+
+  "OCR: waiting agentX..." = hold active
+  Click "Release" to clear the hold manually at any time.
+  Hold timeout: 60 seconds, then auto-releases.
+
+MANUAL HOLD BUTTONS (Hold A1 / Hold A2)
+  Block routing to one agent while letting the other through.
+  One-shot: auto-releases after the next successful send.
+  Use when both agents have pending messages and you want to choose order.
+
+PAUSE
+  Pauses all routing globally. OCR keeps scanning. Click Resume to continue.
+
+
+NUDGE CONTROLS
+--------------
+When the automation stalls at a UI step (down arrow, copy button, send
+button), use the manual override buttons in the nudge row:
+
+  "Read Clip" — general clipboard injector. Manually copy content from
+    the agent window, then hit Read Clip. SOC routes clipboard content
+    as the active agent's output. Works at any stall point.
+
+  "5s Nudge" — countdown then clicks wherever your mouse is sitting.
+    Position your mouse over the stuck element before the timer fires.
+    SOC clicks, then:
+      - If clipboard fills: routes it (copy button was clicked)
+      - If clipboard empty: continues the sequence (nav click like
+        scroll/down arrow)
+    Works at any step — down arrow, copy button, send button, or any UI.
+
+
+ANTI-DRIFT REMINDERS
+--------------------
+Every 5th message to Agent 2 and every 10th to Agent 1 automatically
+includes a protocol reset reminder. Keeps agents on-role during long sessions.
+
+You can see reminders in the log: "[recal] role reminder injected to agentX"
+
+
+PHASE 2a — SECURITY AUDIT (optional)
+--------------------------------------
+Click "Phase 2a: Security Audit" at the bottom of the Phase 2 slide.
+
+  1. Enter stack notes or areas of concern (optional).
+  2. Click "Prepare Audit File".
+  3. SOC assembles a full audit SOP with your workspace path, project
+     name, git log, and your notes.
+  4. The file opens in VS Code. Drag it into a Claude session to begin.
+
+Claude works through 10 audit categories: secrets, personal data, gitignore,
+input validation, SQL injection, auth, error handling, dependencies,
+dangerous functions, and git history.
+
+IMPORTANT: Use a SEPARATE VS Code instance for Phase 2a. Do not use Agent
+2's calibrated window — SOC watches that window and would try to route
+Claude's audit replies as workflow messages.
+
+Proceed to: 04_phase3_debug.txt (optional)

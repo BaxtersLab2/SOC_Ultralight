@@ -1,0 +1,112 @@
+SOC ULTRALIGHT — FIRST-TIME SETUP
+==================================
+
+Do this once. All settings are saved automatically to config.json.
+
+
+STEP 1 — LAUNCH
+---------------
+Double-click run.bat in the SOC Ultralight folder.
+
+The widget opens as a compact dark panel. It stays on top of other windows
+and does not appear in the taskbar.
+
+If the app fails to launch, run:
+  python soc_ultralight.py
+in a terminal to see the error.
+
+
+STEP 2 — ARRANGE YOUR WINDOWS
+------------------------------
+Before calibrating, position all agent windows on screen where you want
+them to stay. Calibration saves screen coordinates — if you move a window
+after calibrating, re-run Cal.
+
+Recommended layout:
+  - Agent 1 (Bing Copilot in Edge) on the left half
+  - Agent 2 (VS Code with Claude) on the right half
+  - SOC widget docked to a corner
+  - A file explorer open to your project folder
+
+See docs/images/ for example layout screenshots.
+
+
+STEP 3 — SET AGENT WINDOWS
+---------------------------
+For each agent:
+
+  1. Click "Set Win" next to that agent in the Phase 1 panel.
+  2. Switch to that agent's window within 5 seconds (a countdown shows
+     in the status bar).
+  3. SOC captures the window handle and title.
+
+No keyboard needed — the capture is timer-based.
+
+If the window handle goes stale (browser tab closed/reopened), click
+Set Win again.
+
+
+STEP 4 — AUTO-CALIBRATE
+------------------------
+Click the Cal button (or "Calibrate All" in Phase 1).
+
+SOC screenshots the screen and uses OpenCV template matching to locate:
+  - Input fields (where you type)
+  - Send buttons
+  - Scroll buttons
+
+Matched coordinates are saved automatically. Check the log:
+  Lines with "trained" = successful match
+  Lines with "no match" = template not found on screen
+
+Make sure both agent windows are fully visible before running Cal.
+
+If a coordinate looks wrong after Cal, use the "Set Input" / "Set Send"
+buttons to manually hover and capture the correct position:
+  1. Click the capture button.
+  2. Hover your mouse over the target element.
+  3. Hold still — SOC captures after a countdown.
+
+
+STEP 5 — SET OCR REGIONS
+-------------------------
+For each agent that sends messages:
+
+  1. Click "Region" next to that agent.
+  2. A dark overlay appears. Click and drag a rectangle over the area of
+     that agent's window that shows outgoing messages (the chat output
+     area, not the input box).
+  3. Release the mouse to confirm.
+
+Make the region tight — just the chat output area. Exclude the input box,
+browser chrome, and any unrelated UI.
+
+
+STEP 6 — SET THE PROJECT NAME
+------------------------------
+Type your project name in the "Project:" field in the Phase 2 panel.
+
+SOC prepends [ACTIVE PROJECT: name] to every message sent to Agent 1 as
+an anti-drift reminder. This keeps Agent 1 on-scope during long sessions.
+
+
+STEP 7 — SET AGENT 3 OUTBOX PATH (if using 3-agent mode)
+---------------------------------------------------------
+In the Phase 2 panel, find the "A3 Outbox:" field.
+
+Type or browse to your agent3_outbox folder:
+  your_project/source/module_blocks/agent3_outbox
+
+SOC will create the folder tree and a processed/ subfolder automatically
+when you confirm the path.
+
+The user creates the source/ folder manually. SOC creates everything inside
+agent3_outbox/ for you.
+
+
+AFTER SETUP
+-----------
+All settings are saved to config.json and restored on next launch.
+Re-calibrate manually (Cal button) if windows have moved since last save.
+
+Proceed to: 02_phase1a_project_priming.txt

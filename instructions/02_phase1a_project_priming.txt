@@ -1,0 +1,84 @@
+SOC ULTRALIGHT — PHASE 1A: PROJECT PRIMING
+==========================================
+
+This phase defines your project before any code is written. Phase 2
+(automated routing) does not start until you click "Begin Workflow" at
+the bottom of this slide.
+
+
+OPENING PHASE 1A
+----------------
+After calibration is complete in Phase 1, click "Launch Workflow".
+The Project Priming slide opens.
+
+
+OPTION A — BRAINSTORM FROM SCRATCH
+-----------------------------------
+Click "Brainstorm".
+
+SOC injects a starter prompt into Agent 1 asking it to help you design
+the project. Describe what you want to build in Agent 1's chat window.
+Agent 1 asks clarifying questions, refines the scope, and produces a
+complete project summary when you are satisfied.
+
+
+OPTION B — LOAD AN EXISTING SUMMARY
+-------------------------------------
+Click "Browse..." and select a .md or .txt file containing your project
+summary.
+
+Click "Inject Summary into Agent 1".
+
+SOC sends the file to Agent 1 with framing that asks Agent 1 to confirm
+the scope and flag any loose ends before proceeding.
+
+
+MARK THE SUMMARY READY
+-----------------------
+Once Agent 1 has a complete project summary, click "Summary Ready".
+The button turns green and the template step unlocks.
+
+
+SEND THE MODULE BLOCK TEMPLATE
+--------------------------------
+Click "Send Template to Agent 1".
+
+SOC reads templates/GENERAL_MODULE_BLOCK_TEMPLATE.md and sends it to
+Agent 1 along with the routing protocol rules:
+
+  - Deliver each block in "To Agent2 / content / end message now" format
+  - Wait for Agent 2's confirmation before sending the next block
+  - When all blocks are confirmed, send the [SOC:EXECUTE] command
+
+The button turns green when sent.
+
+
+OPTIONAL: CLAUDE IMPROVEMENT PASS
+----------------------------------
+Before locking the project summary, you can run it through Claude for a
+structured review. Click the "Improvement Prompt" clipboard button.
+
+SOC copies a structured review prompt to your clipboard. Paste it into a
+Claude session (or the Agent 2 window) along with Agent 1's summary.
+Claude pushes it through four lenses:
+
+  1. Stack & Architecture — flag dated choices, recommend current alternatives
+  2. Security-First — identify attack surfaces before any code exists
+  3. Raise the Ceiling — name the most ambitious additions worth including
+  4. Precision — tighten every ambiguous requirement
+
+The improved summary routes back to Agent 1 automatically if done through
+Agent 2's window with OCR running.
+
+
+BEGIN THE WORKFLOW
+------------------
+Click "Begin Workflow" (enabled only after both steps above are green).
+
+This advances to Phase 2 where SOC takes over routing automatically.
+
+Returning to a project mid-session? On startup, SOC lands directly in
+Phase 2 if your window calibration is already saved. Use "Agent 1 SOP"
+and "Agent 2 SOP" from Phase 2 to re-sync agents if needed.
+
+Proceed to: 03_phase2_build.txt

@@ -1,0 +1,114 @@
+SOC ULTRALIGHT — TROUBLESHOOTING
+==================================
+
+
+APP DOES NOT START
+------------------
+Run: python soc_ultralight.py
+in a terminal and read the error.
+
+Common causes:
+  - Python not on PATH (re-install with "Add to PATH" checked)
+  - Tesseract not at C:\Program Files\Tesseract-OCR\tesseract.exe
+  - Missing package (run.bat should handle this — run it again)
+
+
+OCR SEES THE MESSAGE BUT DOES NOT ROUTE IT
+--------------------------------------------
+Check the log for:
+  "[ocr:agentX] trigger=YES sentinel=YES hold=none" followed by
+  "[dedup] body matches last sent"
+
+The message body is identical to the last one routed. Click Release to
+clear the block and allow it to re-route. This happens when a hold times
+out and the same message is still on screen.
+
+  trigger=no sentinel=YES   "end message now" visible but "To AgentX" not
+                             matching. Check the message format — header
+                             must be on its own line.
+
+  trigger=YES sentinel=no   "To AgentX" seen but "end message now" not yet
+                             visible. Wait for the agent to finish generating.
+
+
+OCR SEES NOTHING
+-----------------
+  - Check that the OCR region (Region button) covers the correct output
+    area of the agent's window.
+  - Make sure agent windows are on screen (not minimised or off-screen).
+  - Check Tesseract is installed at the expected path.
+  - Re-draw the OCR region — try making it slightly larger.
+
+
+MESSAGES ROUTE BUT SEND IS NOT CLICKED
+----------------------------------------
+  - Re-run Cal, or manually re-capture Send via "Set Send" for that agent.
+  - Make sure the agent window is visible and not behind other windows
+    when SOC tries to inject.
+
+
+AGENT 1 (BING COPILOT) INJECTION PROBLEMS
+-------------------------------------------
+  - Enable "Bing mode" in the Phase 2 panel. This adds a double-click for
+    contenteditable focus and polls for the Send button after paste.
+  - If the window handle is stale (tab closed/reopened), click Set Win again.
+  - If the copy button hover step stalls: use the nudge controls.
+      "Read Clip" — manually hover and click Copilot's copy button yourself,
+        then hit Read Clip in SOC. SOC routes the clipboard content.
+      "5s Nudge" — position mouse over the stuck element (down arrow, copy
+        button) and hit 5s Nudge. SOC clicks after countdown and continues.
+
+
+AGENT 1 STALLS AT DOWN ARROW OR COPY BUTTON
+---------------------------------------------
+The Copilot clipboard read sequence has three steps:
+  1. Click the down-arrow / scroll-to-bottom button
+  2. Hover to reveal the copy button
+  3. Click the copy button, read clipboard, route
+
+If step 1 stalls (down arrow not found):
+  - Use 5s Nudge: hover mouse over the down arrow, fire nudge.
+    SOC clicks, sees empty clipboard (nav click), resumes from step 2.
+
+If step 2 or 3 stalls (copy button not found after hover):
+  - Option A: Use Read Clip after manually clicking Copilot's copy button.
+  - Option B: Use 5s Nudge: hover over the copy button, fire nudge.
+    SOC clicks, sees clipboard content, routes immediately.
+
+
+AGENT 2 (CLAUDE CODE) WINDOW NOT CAPTURED
+-------------------------------------------
+VS Code uses GPU-accelerated rendering. SOC uses PIL.ImageGrab (GDI
+capture) which works correctly for VS Code. If OCR shows nothing:
+  - Check the OCR region is set correctly via Region button.
+  - Make sure the VS Code window is not minimised.
+
+
+MODE IS WRONG (AGENTS OUT OF SYNC)
+------------------------------------
+  - Click the mode indicator label at the top of the widget to toggle
+    the mode manually.
+  - Re-send the SOPs via "Agent 1 SOP" and "Agent 2 SOP" to re-align.
+
+
+WELFARE / RE-SYNC
+------------------
+Click "Welfare Check" to send a re-sync prompt to both agents showing
+the last message sent and received. Fires automatically after 2 minutes
+of no pixel activity in the active OCR region.
+
+
+FAILSAFE
+---------
+Move your mouse to the TOP-LEFT CORNER of the screen at any time to
+stop all pyautogui actions immediately (pyautogui built-in failsafe).
+
+
+NUDGE LOG
+----------
+Every manual nudge (Read Clip, 5s Nudge) is logged to nudge_log.json
+with the click position, agent, OCR region, and outcome. This data
+accumulates over sessions and can be used to identify persistent stall
+patterns and harden the automation for your specific screen layout.
+
+nudge_log.json is git-ignored (device-specific). It stays local.

@@ -38,6 +38,9 @@ calibration/
 # Runtime staging output (generated per-session)
 staging/
 
+# Nudge position log (runtime healing data — device-specific)
+nudge_log.json
+
 # Test output artifacts
 test_results/
 
