@@ -2995,6 +2995,11 @@ class SOCUltralight:
                 if _try_route(agent_id, body):
                     routed += 1
 
+        if routed == 0:
+            self._log(
+                f"[route] ⚠ no routing block matched in {len(ocr_text)} chars — "
+                "ensure format is exactly:  To AgentX  /  body  /  end message now  "
+                "(trigger header and sentinel each on their own line)")
         return routed
 
     @staticmethod
@@ -3646,6 +3651,124 @@ class SOCUltralight:
         self._last_ocr_text.pop(agent_id, None)
         self._ocr_process(text, source_agent=agent_id)
 
+    # Templates to check per agent when identifying a hover position
+    _NUDGE_TEMPLATES: dict[str, list[tuple[str, str]]] = {
+        "agent1": [
+            ("Copilot_copy_button.PNG",    "copy-btn"),
+            ("copilot_copy_button.png",    "copy-btn"),
+            ("agent1_scroll_indicator.png","scroll-indicator"),
+            ("copilot_down_arrow.PNG",     "down-arrow"),
+            ("agent1_send.png",            "send-btn"),
+        ],
+        "agent2": [
+            ("Agent2_copy_center.PNG",     "copy-btn"),
+            ("agent2_copy_center.png",     "copy-btn"),
+            ("agent2_scroll_dn.png",       "scroll-dn"),
+            ("send_message_to_agent2.png", "send-btn"),
+            ("agent2_send.png",            "send-btn"),
+        ],
+        "agent3": [
+            ("agent3_scroll_dn.png",       "scroll-dn"),
+            ("agent3_send.png",            "send-btn"),
+            ("send_message_to_claude.png", "send-btn"),
+        ],
+    }
+    # What comes next after each identified element
+    _NUDGE_NEXT_STEP: dict[str, str] = {
+        "down-arrow":        "scroll done → hover sweep → reveal copy button",
+        "scroll-indicator":  "scroll done → hover sweep → reveal copy button",
+        "scroll-dn":         "scroll done → hover sweep → reveal copy button",
+        "copy-btn":          "copy click → read clipboard → route to target agent",
+        "send-btn":          "send click → message delivered → wait for reply",
+        "input-field":       "input focused → paste + send will follow",
+    }
+
+    def _identify_nudge_element(self, x: int, y: int, agent_id: str) -> tuple[str, str]:
+        """Identify what UI element the cursor is hovering over.
+        Checks three sources:
+          1. Calibrated button positions for this agent (send_xy, input_xy, scroll positions)
+          2. Recent nudge_log.json historical click positions (geographic memory)
+          3. Template match in a ±80px crop around the cursor (visual recognition)
+        Returns (identification_string, next_step_hint)."""
+        import json as _json
+        from math import sqrt as _sqrt
+        findings: list[str] = []
+        element_label: str  = ""
+
+        # 1. Calibrated positions
+        cfg = self.agents.get(agent_id)
+        if cfg:
+            for pos, label in [
+                (cfg.send_xy,      "send-btn"),
+                (cfg.input_xy,     "input-field"),
+                (cfg.scroll_dn_xy, "scroll-dn"),
+                (cfg.scroll_up_xy, "scroll-up"),
+            ]:
+                if pos:
+                    d = _sqrt((pos[0] - x) ** 2 + (pos[1] - y) ** 2)
+                    if d < 30:
+                        findings.append(f"cal:{label}({int(d)}px)")
+                        if not element_label:
+                            element_label = label
+
+        # 2. Historical nudge positions from nudge_log.json
+        try:
+            log_path = BASE_DIR / "nudge_log.json"
+            if log_path.exists():
+                entries = _json.loads(log_path.read_text(encoding="utf-8"))
+                nearby = [
+                    (e, _sqrt((e["click_xy"][0] - x) ** 2 + (e["click_xy"][1] - y) ** 2))
+                    for e in entries
+                    if e.get("agent") == agent_id and isinstance(e.get("click_xy"), list)
+                ]
+                close = [(e, d) for e, d in nearby if d < 25]
+                if close:
+                    nearest_e, nearest_d = min(close, key=lambda t: t[1])
+                    outcome = nearest_e.get("outcome", "?")
+                    count   = len(close)
+                    label   = nearest_e.get("identified_as", "").split("|")[0].strip()
+                    findings.append(f"hist:{outcome}×{count}({int(nearest_d)}px)")
+                    if not element_label and "copy" in outcome:
+                        element_label = "copy-btn"
+        except Exception:
+            pass
+
+        # 3. Visual: template match in ±80px crop around cursor
+        try:
+            margin = 80
+            with _mss_ctor() as sct:
+                bbox = {"left": x - margin, "top": y - margin,
+                        "width": margin * 2, "height": margin * 2}
+                raw = sct.grab(bbox)
+                crop_gray = cv2.cvtColor(
+                    np.array(Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")),
+                    cv2.COLOR_RGB2GRAY)
+            best_name, best_conf, best_label = None, 0.0, ""
+            for tname, tlabel in self._NUDGE_TEMPLATES.get(agent_id, []):
+                tpl_path = TEMPLATE_DIR / tname
+                if not tpl_path.exists():
+                    continue
+                tpl = self._safe_imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+                if tpl is None:
+                    continue
+                th, tw = tpl.shape
+                if crop_gray.shape[0] < th or crop_gray.shape[1] < tw:
+                    continue
+                res = cv2.matchTemplate(crop_gray, tpl, cv2.TM_CCOEFF_NORMED)
+                _, conf, _, _ = cv2.minMaxLoc(res)
+                if conf > 0.70 and conf > best_conf:
+                    best_conf, best_name, best_label = conf, tname, tlabel
+            if best_name:
+                findings.append(f"visual:{best_label}({best_conf:.2f})")
+                if not element_label:
+                    element_label = best_label
+        except Exception:
+            pass
+
+        id_str   = " | ".join(findings) if findings else "no-match (new position)"
+        next_str = self._NUDGE_NEXT_STEP.get(element_label, "→ outcome will determine next step")
+        return id_str, next_str
+
     def _cursor_nudge(self, delay: int = 5):
         """General sequence nudge — 5s countdown then clicks wherever the user's mouse is.
         After clicking, detects what kind of element was hit:
@@ -3660,34 +3783,55 @@ class SOCUltralight:
                 f"📍 [{agent_id}] move mouse to stuck element — clicking in {n}s…"))
             time.sleep(1)
         x, y = pyautogui.position()
-        self.root.after(0, lambda: self._set_status(f"📍 Clicking ({x},{y}) for {agent_id}…"))
-        self._log(f"[cursor-nudge] agent={agent_id} click=({x},{y})")
+
+        # ── Intelligent hover: identify element before clicking ───────────────
+        id_str, next_hint = self._identify_nudge_element(x, y, agent_id)
+        self._log(f"[cursor-nudge] agent={agent_id} hover=({x},{y}) → {id_str}")
+        self._log(f"[cursor-nudge] sequence position: {next_hint}")
+        self.root.after(0, lambda: self._set_status(f"📍 Clicking ({x},{y}) — {id_str}"))
+
         pyperclip.copy("")
         pyautogui.click(x, y)
         time.sleep(0.7)
         text = pyperclip.paste()
 
-        # Determine what the click did and respond accordingly
+        # ── Determine outcome and re-enter sequence at the right point ────────
         if text and text.strip():
-            # Copy-type element — clipboard filled — route it
-            outcome = "routed"
-            self._log(f"[cursor-nudge] copy element — {len(text.strip())} chars → routing as {agent_id}")
+            # Copy element clicked — clipboard filled
+            outcome = "copy_routed"
+            has_trigger  = bool(TRIGGER_RE.search(text))
+            has_sentinel = any(v in text.lower() for v in _SENTINEL_VARIANTS)
+            self._log(
+                f"[cursor-nudge] copy confirmed — {len(text.strip())} chars — "
+                f"trigger={has_trigger} sentinel={has_sentinel}")
+            if not has_trigger:
+                self._log(
+                    "[cursor-nudge] ⚠ no 'To AgentX' header in clipboard — "
+                    "agent may not have used routing format, or copy captured wrong area")
+            if not has_sentinel:
+                self._log(
+                    "[cursor-nudge] ⚠ no 'end message now' in clipboard — "
+                    "agent may still be generating; wait and nudge again")
+            self._log("[cursor-nudge] spillway → inject body → target agent input → click send")
             self.root.after(0, lambda: self._set_status(
-                f"📍 Copy nudge: routed {len(text.strip())} chars as {agent_id}"))
+                f"📍 Copy nudge: {'routing' if has_trigger and has_sentinel else '⚠ format issue'} "
+                f"— {len(text.strip())} chars as {agent_id}"))
             self._last_ocr_text.pop(agent_id, None)
             self._ocr_process(text, source_agent=agent_id)
         else:
-            # Navigation element (scroll arrow, down arrow, etc.) — continue sequence
+            # Navigation element clicked (scroll arrow, down arrow, etc.)
             outcome = "nav_continue"
-            self._log(f"[cursor-nudge] nav element — resuming force_scan for {agent_id}")
+            self._log(
+                f"[cursor-nudge] nav confirmed — clipboard empty — "
+                "spillway → resuming sequence from next step")
+            self._log(f"[cursor-nudge] next: {next_hint}")
             self.root.after(0, lambda: self._set_status(
-                f"📍 Nav nudge: continuing {agent_id} sequence…"))
-            # Clear stale active flag so force_scan can fire, then resume
+                f"📍 Nav nudge: sequence continuing for {agent_id}…"))
             self._force_scan_active[agent_id] = False
             threading.Thread(
                 target=self._ocr_force_scan, args=(agent_id,), daemon=True).start()
 
-        # Log position + outcome for future healing / pattern detection
+        # ── Log position + outcome for future healing ─────────────────────────
         try:
             import json as _json
             log_path = BASE_DIR / "nudge_log.json"
@@ -3699,11 +3843,13 @@ class SOCUltralight:
                     entries = []
             cfg = self.agents.get(agent_id)
             entries.append({
-                "ts": datetime.now().isoformat(),
-                "agent": agent_id,
-                "click_xy": [x, y],
-                "ocr_region": list(cfg.ocr_region) if cfg and cfg.ocr_region else None,
-                "outcome": outcome,
+                "ts":            datetime.now().isoformat(),
+                "agent":         agent_id,
+                "click_xy":      [x, y],
+                "ocr_region":    list(cfg.ocr_region) if cfg and cfg.ocr_region else None,
+                "outcome":       outcome,
+                "identified_as": id_str,
+                "next_step":     next_hint,
             })
             log_path.write_text(_json.dumps(entries[-200:], indent=2), encoding="utf-8")
         except Exception:
