@@ -17,10 +17,32 @@ compile_err.txt
 buttons database/*.png
 buttons database/*.PNG
 
-# Screenshots
+# Screenshots / runtime captures (root-level snaps from pc.py etc.)
 *.jpg
 *.JPG
 *.jpeg
+snap_*.png
+Capturenow.JPG
+Capturenow.PNG
+
+# Binary installers
+*.exe
+*.msi
+
+# Claude Code project state (machine-local)
+.claude/
+
+# Device-specific calibration snapshots
+calibration/
+
+# Runtime staging output (generated per-session)
+staging/
+
+# Test output artifacts
+test_results/
+
+# Local dev/test scripts (not part of the shipped tool)
+test_scroll_harness.py
 
 # Dev / internal notes (stay local only)
 DEV_NOTES.md
