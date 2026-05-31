@@ -1,5 +1,7 @@
 # SOC Ultralight
 
+![SOC Ultralight](docs/images/banner.png)
+
 **Orchestrate a team of AI agents to design, build, and debug your projects —  
 no API keys, no cloud, no token bills for orchestration.**
 
