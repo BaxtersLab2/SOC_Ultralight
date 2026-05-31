@@ -1,13 +1,13 @@
 {
   "agent1_chat_input_field.png": {
-    "matches": 74,
-    "conf_sum": 65.93654614686966,
+    "matches": 78,
+    "conf_sum": 69.51599162817001,
     "trained": true,
     "action": "click"
   },
   "agent2_chat_input_field.png": {
-    "matches": 47,
-    "conf_sum": 46.771067798137665,
+    "matches": 51,
+    "conf_sum": 50.76264375448227,
     "trained": true,
     "action": "click"
   },
@@ -30,20 +30,20 @@
     "action": "click"
   },
   "agent1_input.png": {
-    "matches": 26,
-    "conf_sum": 24.776906490325928,
+    "matches": 27,
+    "conf_sum": 25.77684259414673,
     "trained": true,
     "action": "focus_paste"
   },
   "agent1_scroll_dn.png": {
-    "matches": 70,
-    "conf_sum": 68.07482975721359,
+    "matches": 74,
+    "conf_sum": 72.07296627759933,
     "trained": true,
     "action": "click"
   },
   "agent1_scroll_up.png": {
-    "matches": 75,
-    "conf_sum": 72.36199152469635,
+    "matches": 79,
+    "conf_sum": 76.21496486663818,
     "trained": true,
     "action": "click"
   },
@@ -72,8 +72,8 @@
     "action": "click"
   },
   "send_message_to_claude.png": {
-    "matches": 41,
-    "conf_sum": 36.915155827999115,
+    "matches": 45,
+    "conf_sum": 40.400389432907104,
     "trained": true,
     "action": "click"
   },
@@ -84,8 +84,8 @@
     "action": "focus_paste"
   },
   "agent2_scroll_dn.png": {
-    "matches": 69,
-    "conf_sum": 67.32333517074585,
+    "matches": 73,
+    "conf_sum": 71.28883683681488,
     "trained": true,
     "action": "click"
   },
@@ -96,20 +96,20 @@
     "action": "click"
   },
   "send_message_to_agent2.png": {
-    "matches": 106,
-    "conf_sum": 95.28032445907593,
+    "matches": 109,
+    "conf_sum": 97.86960870027542,
     "trained": true,
     "action": "click"
   },
   "claude_chat_input_field.png": {
-    "matches": 27,
-    "conf_sum": 26.054469525814056,
+    "matches": 30,
+    "conf_sum": 29.05064469575882,
     "trained": true,
     "action": "click"
   },
   "agent3_input.png": {
-    "matches": 20,
-    "conf_sum": 19.739638924598694,
+    "matches": 23,
+    "conf_sum": 22.737625181674957,
     "trained": true,
     "action": "click"
   },
@@ -120,8 +120,8 @@
     "action": "click"
   },
   "agent3_send.png": {
-    "matches": 34,
-    "conf_sum": 32.23317748308182,
+    "matches": 38,
+    "conf_sum": 35.976119458675385,
     "trained": true,
     "action": "click"
   },
@@ -150,14 +150,14 @@
     "action": "click"
   },
   "copilot_copy_button.png": {
-    "matches": 6,
-    "conf_sum": 5.999885201454163,
-    "trained": false,
+    "matches": 10,
+    "conf_sum": 9.99981278181076,
+    "trained": true,
     "action": "click"
   },
   "agent2_copy_center.png": {
-    "matches": 1,
-    "conf_sum": 0.9992451667785645,
+    "matches": 4,
+    "conf_sum": 3.996981680393219,
     "trained": false,
     "action": "click"
   }
