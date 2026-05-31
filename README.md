@@ -3,7 +3,7 @@
 ![SOC Ultralight](docs/images/banner.png)
 
 **Orchestrate a team of AI agents to design, build, and debug your projects —  
-no API keys, no cloud, no token bills for orchestration.**
+no API keys, minimize or eliminate your cloud token usage.**
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
@@ -63,7 +63,7 @@ The future of debugging: Claude + screenshot vision + mouse automation. Describe
 ## Key Features
 
 - **No API keys** — works through the chat interfaces you already have open
-- **No cloud** — everything runs locally on your machine
+- **Minimize or eliminate cloud token usage** — orchestration runs locally; cloud models only spend tokens on actual work
 - **Any capable LLM** — agent slots are role-defined; any model that follows structured instructions can fill any slot
 - **OCR + clipboard routing** — reads agent windows directly; no browser extensions, no plugins, no injection scripts
 - **File-based large-message routing** — Agent 3 delivers long responses (audit findings, chapter drafts) as files; SOC routes them without scrolling or OCR limits
