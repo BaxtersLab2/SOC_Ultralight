@@ -1,0 +1,106 @@
+SOC ULTRALIGHT — MESSAGE PROTOCOL & WORKSPACE RULES
+=====================================================
+
+
+AGENT MESSAGE FORMAT
+--------------------
+All agent-to-agent messages must use this exact 3-line format:
+
+  To Agent2
+  <message body here>
+  end message now
+
+  Line 1   Routing header. Must be "To Agent1", "To Agent2", or "To Agent3".
+           Case-insensitive. Number can be digit or OCR variant (l, i, |).
+  Middle   Message body. Any text, any number of lines.
+  Last     Sentinel. Must be exactly "end message now".
+
+SOC only routes a message AFTER the sentinel appears on screen. This
+prevents partial captures while text is still streaming.
+
+OCR variants: SOC automatically normalises "To Agentl" and "To Agent|"
+to "To Agent1" — OCR misreads are handled automatically.
+
+
+AGENT 3 OUTBOX FORMAT
+----------------------
+Agent 3 delivers large responses via file, not chat.
+
+  1. Write full response to: [outbox_path]/[name]_to_agent2.md
+     Use _to_agent1.md if routing to Agent 1 instead.
+  2. Send this notification in chat (one line only):
+       OUTBOX: [name]_to_agent2.md
+
+SOC watches the outbox folder, reads the file, routes to the correct agent,
+and archives to outbox/processed/. Do not include the full response in chat.
+
+
+MODE-SWITCH COMMAND
+--------------------
+When all module blocks are delivered and confirmed, Agent 1 sends this
+exact command to switch SOC to Implementation Mode:
+
+  To Agent2
+  [SOC:EXECUTE]
+  All instruction blocks have been sent and confirmed by Agent 2.
+  Begin implementation in alphanumeric order now.
+  end message now
+
+SOC detects [SOC:EXECUTE] in the message body and flips to IMPLEMENTATION
+MODE before routing the message to Agent 2.
+
+No other phrase triggers this switch. Natural-language phrases containing
+"implement" or "execute" inside block bodies are blocked unless the exact
+[SOC:EXECUTE] token is present.
+
+Agent 1 is reminded of this command every 10 messages via the anti-drift
+reminder, along with a warning that module blocks are finite.
+
+
+WORKSPACE DISCIPLINE
+---------------------
+These rules are enforced through Agent 2's SOP and every-5-message reminders.
+
+GIT PUSH — HARD PROHIBITION
+  Agent 2 must never push to a remote during development.
+  - No git push, git push --force, gh pr create, or any external send.
+  - No deployment, publishing, or file sharing during build.
+  - Push is always the LAST action — after tests pass, app is complete,
+    and the user has explicitly approved.
+
+WORKSPACE CLEANLINESS BEFORE ANY COMMIT
+  Delete build artifacts before committing, do not just gitignore them.
+
+  Python:   __pycache__/, *.pyc, *.pyo, .pytest_cache/, dist/, build/
+  Node/JS:  node_modules/, dist/, build/, .next/, .cache/, coverage/
+  Rust:     target/ contents
+  Java:     target/, *.class
+  .NET:     bin/, obj/
+  C/C++:    *.o, *.obj, CMakeFiles/
+  All:      *.log, logs/, *.tmp, *.temp, *.bak, test-results/
+
+GITIGNORE BEFORE FIRST COMMIT
+  A .gitignore must exist in the project root before git add is ever run.
+  Agent 2 creates it as its first git action.
+  Template: templates/GITIGNORE_TEMPLATE.txt — copy to project root.
+
+TEST BEFORE COMMIT
+  All tests must pass locally before any commit.
+  If no test suite exists, Agent 2 flags this as a PROBLEM to Agent 1.
+
+
+IMPLEMENTATION MODE GUARD
+--------------------------
+While in MODULE BLOCK MODE, any message body containing implementation
+keywords (implement, execute, build, deploy, etc.) without the [SOC:EXECUTE]
+token is intercepted and blocked. Agent 2 receives a warning instead.
+
+This prevents block content that happens to mention execution from
+accidentally triggering the build phase.
+
+When implementation is complete, Agent 2 sends:
+  To Agent1
+  implementation of instruction blocks is complete
+  end message now
+
+SOC detects this phrase and switches back to MODULE BLOCK MODE.

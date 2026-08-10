@@ -1,0 +1,221 @@
+{
+  "agent1_chat_input_field.png": {
+    "matches": 105,
+    "conf_sum": 93.18652302026749,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_chat_input_field.png": {
+    "matches": 69,
+    "conf_sum": 68.55333262681961,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_window_scroll1.png": {
+    "matches": 22,
+    "conf_sum": 21.692526936531067,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_window_scroll2.png": {
+    "matches": 12,
+    "conf_sum": 11.555452466011047,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_allow.png": {
+    "matches": 2,
+    "conf_sum": 1.9934595227241516,
+    "trained": false,
+    "action": "click"
+  },
+  "agent1_input.png": {
+    "matches": 27,
+    "conf_sum": 25.77684259414673,
+    "trained": true,
+    "action": "focus_paste"
+  },
+  "agent1_scroll_dn.png": {
+    "matches": 96,
+    "conf_sum": 93.9467636346817,
+    "trained": true,
+    "action": "click"
+  },
+  "agent1_scroll_up.png": {
+    "matches": 95,
+    "conf_sum": 91.61264204978943,
+    "trained": true,
+    "action": "click"
+  },
+  "agent1_send.png": {
+    "matches": 23,
+    "conf_sum": 22.847546994686127,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_scroll_up.png": {
+    "matches": 24,
+    "conf_sum": 23.407809674739838,
+    "trained": true,
+    "action": "click"
+  },
+  "keep_all_changes.png": {
+    "matches": 63,
+    "conf_sum": 51.94578021764755,
+    "trained": true,
+    "action": "click"
+  },
+  "send_message_to_agent1.png": {
+    "matches": 77,
+    "conf_sum": 64.09876346588135,
+    "trained": true,
+    "action": "click"
+  },
+  "send_message_to_claude.png": {
+    "matches": 66,
+    "conf_sum": 59.97403126955032,
+    "trained": true,
+    "action": "click",
+    "deprecated": "Anthropic UI update 2026-06: replaced by Agent3_send_input_button.PNG + claude_geo_point.PNG hover-reveal flow"
+  },
+  "agent2_input.png": {
+    "matches": 26,
+    "conf_sum": 25.14393824338913,
+    "trained": true,
+    "action": "focus_paste"
+  },
+  "agent2_scroll_dn.png": {
+    "matches": 92,
+    "conf_sum": 90.06841444969177,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_send.png": {
+    "matches": 19,
+    "conf_sum": 18.345261693000793,
+    "trained": true,
+    "action": "click"
+  },
+  "send_message_to_agent2.png": {
+    "matches": 115,
+    "conf_sum": 103.10858750343323,
+    "trained": true,
+    "action": "click"
+  },
+  "claude_chat_input_field.png": {
+    "matches": 45,
+    "conf_sum": 44.01345902681351,
+    "trained": true,
+    "action": "click",
+    "deprecated": "Anthropic UI update 2026-06: replaced by agent3_input.png / agent3_input_field.png"
+  },
+  "agent3_input.png": {
+    "matches": 24,
+    "conf_sum": 23.694055497646332,
+    "trained": true,
+    "action": "click"
+  },
+  "agent3_scroll_dn.png": {
+    "matches": 9,
+    "conf_sum": 8.630459427833557,
+    "trained": false,
+    "action": "click"
+  },
+  "agent3_send.png": {
+    "matches": 59,
+    "conf_sum": 56.488004982471466,
+    "trained": true,
+    "action": "click"
+  },
+  "agent1_window_scroll2.png": {
+    "matches": 2,
+    "conf_sum": 1.7596231698989868,
+    "trained": false,
+    "action": "click"
+  },
+  "claude_yes_button.png": {
+    "matches": 6,
+    "conf_sum": 5.9800660610198975,
+    "trained": false,
+    "action": "click"
+  },
+  "agent1_scroll_indicator.png": {
+    "matches": 9,
+    "conf_sum": 8.964640021324158,
+    "trained": false,
+    "action": "click"
+  },
+  "Agent2_copy_center.PNG": {
+    "matches": 0,
+    "conf_sum": 0.0,
+    "trained": false,
+    "action": "click"
+  },
+  "copilot_copy_button.png": {
+    "matches": 26,
+    "conf_sum": 25.988249242305756,
+    "trained": true,
+    "action": "click"
+  },
+  "agent2_copy_center.png": {
+    "matches": 8,
+    "conf_sum": 7.993963539600372,
+    "trained": false,
+    "action": "click"
+  },
+  "agent2_copy_button_v2.png": {
+    "matches": 0,
+    "conf_sum": 0.0,
+    "trained": false,
+    "action": "click"
+  },
+  "agent3_geo_hover_copy_button.png": {
+    "matches": 2,
+    "conf_sum": 1.650757074356079,
+    "trained": false,
+    "action": "click"
+  },
+  "agent3_input_field.png": {
+    "matches": 3,
+    "conf_sum": 2.7802951335906982,
+    "trained": false,
+    "action": "click"
+  },
+  "claude_geo_point.png": {
+    "matches": 2,
+    "conf_sum": 1.999581217765808,
+    "trained": false,
+    "action": "click"
+  },
+  "agent3_allow_button.png": {
+    "matches": 1,
+    "conf_sum": 1.0,
+    "trained": false,
+    "action": "click"
+  },
+  "agent3_accept.png": {
+    "matches": 0,
+    "conf_sum": 0.0,
+    "trained": false,
+    "action": "click",
+    "deprecated": "fallback \u2014 worked briefly as a one-day patch; superseded by agent3_allow_button.png. Keep as emergency fallback, do not delete."
+  },
+  "copilot_down_arrow.png": {
+    "matches": 4,
+    "conf_sum": 3.8737877011299133,
+    "trained": false,
+    "action": "click"
+  },
+  "agent2_send_cld.png": {
+    "matches": 1,
+    "conf_sum": 0.9373862743377686,
+    "trained": false,
+    "action": "click"
+  },
+  "claude_positive_indicator.png": {
+    "matches": 1,
+    "conf_sum": 0.998842716217041,
+    "trained": false,
+    "action": "click"
+  }
+}

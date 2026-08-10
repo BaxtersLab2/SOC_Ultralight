@@ -1,0 +1,33 @@
+[package]
+name = "vi_minimizer"
+version = "0.1.0"
+edition = "2021"
+description = "Isolated Win32 virtual-desktop host for the SOC Ultralight agent swarm — run GUI automation off the operator's real desktop."
+license = "MIT"
+repository = "https://github.com/BaxtersLab/Vi_minimizer"
+readme = "README.md"
+keywords = ["windows", "desktop", "automation", "isolation", "soc"]
+categories = ["os::windows-apis", "command-line-utilities"]
+
+[lib]
+name = "vi_minimizer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vi_minimizer"
+path = "src/main.rs"
+
+# Windows-only: the whole point of the crate is Win32 desktop objects.
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Graphics_Gdi",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+opt-level = 2

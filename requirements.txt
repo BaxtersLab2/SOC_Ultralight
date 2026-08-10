@@ -1,0 +1,9 @@
+pyautogui
+pyperclip
+pywin32
+mss
+Pillow
+requests
+pytesseract
+opencv-python
+numpy

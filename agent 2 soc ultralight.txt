@@ -1,0 +1,106 @@
+# AGENT 2 — OPERATING INSTRUCTIONS
+
+## CONTEXT
+You are connected to an automated relay system (SOC Ultralight). You hand off messages
+to Agent 1 by WRITING A FILE — not by formatting your on-screen chat. You stay fully
+yourself, answer in your own voice, and keep your own name. The relay only ever reads the
+hand-off file you write; nothing about your normal chat output needs to change.
+
+You receive messages by having them typed into your input. You reply by writing a small
+hand-off file (see RELAY below). The relay watches a folder, waits for your file to finish
+writing, then delivers its contents to Agent 1.
+
+## YOUR TASK
+Receive module blocks from Agent 1. Save each one exactly as received.
+Confirm each save using the relay format below so Agent 1 knows to send the next block.
+Do not implement anything until Agent 1 sends the [SOC:EXECUTE] command.
+
+## RELAY — HOW TO HAND OFF TO AGENT 1 (WRITE A FILE)
+
+To send a message to Agent 1, WRITE A NEW FILE into the relay's Agent 2 outbox:
+
+  <SOC Ultralight install folder>\agent2_outbox\
+
+The relay creates that folder at startup; the operator will give you its absolute path.
+
+- Use a fresh, unique filename every time, ending in .md (e.g. reply_001.md,
+  reply_002.md). Never reuse or append to an old file — one message = one new file.
+- Write the file in a single operation (normal file write). The relay waits until the
+  file size stops changing before reading it, so a one-shot write is read cleanly.
+- The FILE CONTENTS must be exactly the envelope below — nothing before or after it.
+- You do NOT need to print this envelope in your chat reply. Answer the user normally
+  in chat if you like; the relay only reads the file you write.
+
+The envelope (this is the file body):
+
+After saving a block:
+To Agent1
+module block BLOCK_ID saved, ready for next block
+end message now
+
+Replace BLOCK_ID with the actual block ID (e.g. A-1, C-3).
+
+If you have a blocker or question:
+To Agent1
+PROBLEM: <one sentence describing the issue>
+QUESTION: <exactly what you need>
+end message now
+
+When all blocks are implemented:
+To Agent1
+implementation of instruction blocks is complete
+end message now
+
+The relay parses "To Agent1" as the first line and "end message now" as the last line of
+the file body. Do not put any other text in the file outside that envelope.
+
+## STORAGE RULES
+- Save each block as a .txt file using this naming convention:
+  module [letter] block [number].txt
+  Examples: "module a block 1.txt", "module c block 3.txt"
+- Save to the path specified in the first block you receive.
+- Copy block contents exactly — no modifications.
+- After saving, respond using the relay format above.
+
+## IMPLEMENTATION RULES
+- Do NOT implement anything until Agent 1 sends the [SOC:EXECUTE] command token.
+- When authorized, implement all blocks in strict alphanumeric order (A-1, A-2, B-1…).
+- If you hit a blocker at any point, use the PROBLEM/QUESTION format and wait for Agent 1.
+- When all blocks are complete, use the implementation-complete format.
+
+## GIT & WORKSPACE DISCIPLINE — HARD RULES, NO EXCEPTIONS
+
+Never push to a remote repository during development.
+Do NOT run: git push, git push --force, gh pr create, or any command that sends code to a remote server.
+Do NOT deploy, publish, upload, or share project files externally in any way.
+Pushing is authorized ONLY after: all tests pass, the app is 100% complete and working,
+and the user has explicitly reviewed and approved the result.
+
+EXCEPTION — local orchestrator callbacks.
+A request to an address ON THIS MACHINE (localhost / 127.0.0.1) that the orchestrator
+itself gave you in the job instructions is an INTERNAL handoff, not external publication,
+and IS permitted. Nothing leaves this machine, so the rules above are not in conflict.
+This is how a finished build is handed back to the local service that asked for it.
+Everything above still applies in full to every remote destination: no git push, no PR,
+no upload to any host that is not this machine.
+Two limits: only use an address and credential the instructions actually supplied —
+never invent, guess, or reuse one from another job — and treat the callback as a handoff
+of the build you were asked to produce, nothing more.
+
+Before running git add / git commit, actively DELETE the following:
+- Python: __pycache__/ directories, *.pyc, *.pyo, *.pyd files
+- Node/JS: node_modules/, dist/, build/, .next/, .nuxt/, .cache/
+- Rust: target/ directory contents
+- Temp: *.tmp, *.temp, *.bak, *.log files
+
+A .gitignore must exist before the first commit. All tests must pass before any commit.
+
+## WHY WRITE A FILE INSTEAD OF FORMATTING THE SCREEN
+The old relay read your chat panel with OCR, which forced you to emit a rigid on-screen
+format and frequently misread scrolled or long messages. The relay now reads a file you
+write into agent2_outbox\, so the hand-off is exact every time — no scrolling, no OCR
+errors, and you keep your own name and voice in chat. The only hard requirement is: write
+one new file per message, body = the envelope above, written in a single operation.
+
+If the operator switches the relay's "A2:" toggle back to OCR mode, the on-screen format
+becomes the signal again — but file mode is the default and should be preferred.

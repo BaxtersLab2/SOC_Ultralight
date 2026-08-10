@@ -1,0 +1,14 @@
+- The Master Constitution uses only USER, AGENT_1, AGENT_2.
+- Real names and nicknames appear only in this folder.
+- AGENT_2 must never infer identity values.
+- AGENT_2 must load identity values only from mapping.txt.
+
+Agent tiers:
+- Dev agents (space + single digit): "Agent 1", "Agent 2"
+  Role: orchestration, planning, creative dev, implementation management.
+- Sub-agents (no space + multiples of 11): "agent11", "agent22"
+  Role: specialist coders dispatched by dev agents for bounded work.
+  agent11 = Rust / Python / general advanced coding.
+  agent22 = HTML / Java / web design specialist.
+- App-internal agents: LLM agents inside RDup1 & RDup2.
+  These are app functionality, NOT development agents. Do not conflate.

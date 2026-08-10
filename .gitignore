@@ -1,0 +1,104 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Runtime folders (processed messages, never commit)
+outbox/
+sent/
+agent2_outbox/
+
+# Device-specific calibration — never commit (contains local screen coordinates)
+config.json
+compile_err.txt
+startup_err.txt
+crash.log
+
+
+# Screenshots / runtime captures (root-level snaps from pc.py etc.)
+*.jpg
+*.JPG
+*.jpeg
+snap_*.png
+Capturenow.JPG
+Capturenow.PNG
+
+# Binary installers
+*.exe
+*.msi
+
+# Claude Code project state (machine-local)
+.claude/
+
+# Device-specific calibration snapshots
+calibration/
+
+# Runtime staging output (generated per-session)
+staging/
+
+# Durable inter-agent transcript (runtime, per-session, device-specific)
+transcript/
+
+# SOC liveness heartbeat (runtime; the transcript monitor watches it)
+.soc_alive
+
+# Agent 3 file-drop relay (runtime, cleared after each message)
+agent3_out.txt
+
+# Runtime data logs
+data_log/
+
+# Local secret state (never commit)
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.pem
+*.key
+*_secret*
+*_credentials*
+
+# Nudge position log (runtime healing data — device-specific)
+nudge_log.json
+
+# Test output artifacts
+test_results/
+
+# Local dev/test scripts (not part of the shipped tool)
+test_scroll_harness.py
+
+# Dev / internal notes (stay local only)
+DEV_NOTES.md
+dev_notes.md
+HANDOFF.md
+project objective notes.txt
+roadmap.txt
+TODO_LOCAL.md
+*.local.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Installer-managed (cloned from BaxtersLab/V_plugin)
+plugins/
+
+# Optional private plugins — code and config stay local, never shipped.
+e_plugin*
+e-plugin*
+E_plugin*
+E-plugin*
+
+# local debug archive of superseded button crops (not shipped)
+buttons database/_stale_*/
+
+# Runtime control signal (written per-session by the launcher)
+soc_control.signal
+
+# Local preservation copies of superseded trees — never shipped
+_preserved_from_desktop_dup/
+*_preserved_*/

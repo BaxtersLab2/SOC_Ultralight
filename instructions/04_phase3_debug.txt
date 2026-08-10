@@ -1,0 +1,94 @@
+SOC ULTRALIGHT — PHASE 3: DEBUG
+================================
+
+Phase 3 is a free-form human + Claude debug session. When implementation
+is done (or when you hit a wall mid-build), click "Phase 3: Debug" at the
+bottom of the Phase 2 slide.
+
+There is no automated routing in Phase 3. Claude talks directly to you.
+You direct the work.
+
+
+CRITICAL: USE A SEPARATE VS CODE INSTANCE
+------------------------------------------
+Do NOT run Phase 3 inside Agent 2's VS Code window.
+
+SOC's OCR is watching that window. If Claude responds there, SOC reads
+the replies as agent protocol messages and routes them — sending Claude's
+debug output to Agent 1 or Agent 2 as a workflow instruction.
+
+Open a second, fresh VS Code window (File > New Window or "code" in a
+new terminal) and run Phase 3 there. That window is not calibrated, not
+watched, and completely isolated from the SOC routing loop.
+
+  SOC watches:                    Phase 3 goes here:
+  Agent 2 (VS Code)    <- OCR    Claude (VS Code #2)   <- NOT watched
+  Implementer window              Debug session only
+
+
+STARTING THE SESSION
+--------------------
+  1. Click "Phase 3: Debug" in the Phase 2 panel.
+  2. A dialog opens. Type a numbered list of every bug, broken feature,
+     or unexpected behaviour you want fixed.
+  3. Click "Prepare Debug File".
+
+SOC assembles a complete debug SOP containing:
+  - Your workspace path and project name
+  - The last 12 git commits
+  - Your issue list, numbered and formatted for action
+
+The SOP is saved to staging/phase3_debug_sop.md and opens in VS Code.
+
+
+RUNNING THE SESSION
+--------------------
+Switch to your second VS Code window. Drag phase3_debug_sop.md from
+the file explorer into Claude's chat input (or paste its contents).
+
+Claude reads the full project context — workspace, git history, your
+issue list — and begins working through each item.
+
+Claude's toolset in Phase 3:
+  Read / Edit / Write / Bash / Grep / Glob  — inspect and modify files
+  Agent (subagent)                           — delegate parallel research
+  pc.py visual debugging tool                — screenshots, OCR, clicking
+
+After any screenshot, Claude uses Read on the saved PNG path to visually
+inspect the current state of the app. This is the "future of debugging"
+angle — Claude sees what you see.
+
+
+THE PING-PONG LOOP
+------------------
+  You (report issue)  ->  Claude (diagnose, fix, verify)
+                      <-  You (confirm fix or surface new issue)
+                      ->  Claude (next fix) ...
+
+Repeat until all items on your list are resolved. Claude carries full
+project context across the session — it can read files, run tests, check
+git history, and propose targeted fixes without you re-explaining anything.
+
+
+WHEN TO USE PHASE 3
+--------------------
+Best for:
+  - Bugs isolated to specific files or clear logic errors
+  - UI issues where screenshot inspection helps Claude understand the state
+  - Integration issues where Claude can run the app and observe behaviour
+
+Go back to Phase 1a instead for:
+  - Large architectural changes
+  - New features that require new module blocks
+  - Scope changes that affect multiple agents' instructions
+
+
+QUARANTINE
+----------
+The SOP file lives in staging/ inside the SOC Ultralight source folder.
+
+  - Agents 1 and 2 never see it — they only receive content SOC explicitly
+    injects into their chat windows. No agent browses your file system.
+  - You control exactly when Phase 3 begins by choosing when to drag the
+    file into Claude.
+  - staging/ is git-ignored by default.

@@ -1,0 +1,22 @@
+# Rust build artifacts
+target/
+# Cargo.lock IS tracked — vi_minimizer ships a binary CLI, so the lockfile is
+# committed for reproducible builds (same policy as GGUF-Chatbox).
+
+# Python bridge artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE / OS
+.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env / secrets (this crate has none, but keep the guard)
+.env
+.env.*
+*.key
+*.pem
